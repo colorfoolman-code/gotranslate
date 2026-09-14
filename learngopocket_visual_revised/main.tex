@@ -1,0 +1,54 @@
+% Learn Go with Pocket-Sized Projects — 中文辅助阅读版
+% 涵盖原书第 3–9 章（part01–part09）
+\documentclass[11pt,openany]{book}
+\usepackage{styles/pocketbook}
+\begin{document}
+\frontmatter
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+{\Huge\bfseries Learn Go with Pocket-Sized Projects\\[0.8cm]
+袖珍项目学 Go}\\[1.2cm]
+{\Large 中文辅助阅读版}\\[2cm]
+{\large 原著：Aliénor Latour\\
+Jonas Huwyler\\
+Philipp Reinhard}\\[1cm]
+{\large Manning Publications}\\[3cm]
+{\normalsize 本译本仅供辅助阅读学习使用，请支持正版原书}\\[0.5cm]
+{\normalsize 涵盖原书第 3--9 章}\\[2cm]
+\vfill
+\end{titlepage}
+
+% ================= 编校说明 =================
+\chapter*{编校说明}
+\addcontentsline{toc}{chapter}{编校说明}
+
+本书为《Learn Go with Pocket-Sized Projects》（Manning, 2024）的中文辅助阅读译本，涵盖原书第 3--9 章。翻译时遵循以下约定：
+
+\begin{itemize}
+  \item \textbf{忠实原文}：正文严格对应原书内容，讲解、旁注、示例、练习、幽默表述一律保留，不增删改写；段内按原文分段。
+  \item \textbf{代码与清单}：所有代码清单保持英文原样（代码本身不译），清单标题译为``代码清单 N.M''；行内标记 \texttt{\#N} 为原文注释标记，其对应中文注释列于清单下方的注释列表中。
+  \item \textbf{终端会话}：命令行会话以等宽字体呈现，提示符 \texttt{>} 等保持原样。
+  \item \textbf{术语}：首次出现时附英文原文，如``哨兵错误（sentinel error）''；惯用英文的词（goroutine、race、benchmark 等）保留英文。
+  \item \textbf{图}：图注译为``图 N.M''；代码中的图（源码渲染图）以清单形式呈现。
+  \item \textbf{审校备注}：编辑加工过程中的校对备注不混入正文，单独存放于 review/ 目录。
+\end{itemize}
+
+\tableofcontents
+\mainmatter
+
+\setcounter{page}{1}
+
+% 第 3--6 章为 part01--part06（对应原书 PDF 页 001--231）
+\setcounter{chapter}{2}
+\input{chapters/part01_p001_039}
+\input{chapters/part02_p040_079}
+\input{chapters/part03_p080_118}
+\input{chapters/part04_p119_154}
+\input{chapters/part05_p155_191}
+\input{chapters/part06_p192_231}
+\input{chapters/part07_p001_052}
+\input{chapters/part08_p053_127}
+\input{chapters/part09_p128_194}
+
+\end{document}

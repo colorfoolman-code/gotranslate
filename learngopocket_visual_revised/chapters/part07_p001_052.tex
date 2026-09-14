@@ -1,0 +1,1287 @@
+% SOURCE_PDF_PAGE: 001
+\chapter{用泛型做缓存}
+
+\begin{infobox}{本章内容}
+\begin{itemize}
+  \item 在 Go 中使用泛型
+  \item 不需要泛型时不滥用泛型
+  \item 创建类型约束
+  \item goroutine、并行与并发
+  \item 竞态条件
+  \item 添加互斥锁
+  \item 学几条 Go 谚语
+\end{itemize}
+\end{infobox}
+
+回想一下你的学生时代。你有没有过这样的经历：突然想起第二天要交一项连开头都没写的作业？也许你打电话给一位朋友，问他们有没有做出第 2.b 题，好让你抢个先手，把更多时间花在作业的其他部分上。当然，老师们对这种事情是皱眉头的。
+
+而计算机不会因为你抄近路就对你指手画脚。缓存（cache）就是这样一条近路：它是一种键值存储，可以访问至少在过去被计算过一次的数据——只要访问这些数据说得通。当我们知道某个返回值很慢的函数会被同样的输入调用多次——并且每次输出的值都应该相同时，经常会使用缓存。有些场景下我们想用缓存。比如说，你知道``名字最长的城市是：曼谷。''这种事就没必要每天早上核查一遍。也有些场景我们明确不想用缓存（``阿尔及利亚第纳尔兑欧元
+% SOURCE_PDF_PAGE: 002
+的当前汇率是：？''），在这些情况下，过期的答案可能造成困惑。还有些时候，使用缓存是可以接受的（``埃塞俄比亚的总人口是：123{,}967{,}194''），因为这个问题并不真正要求即时作答；也就是说，上周的数值和本周的数值处于同一量级。
+
+本章我们将介绍泛型，并实现一个朴素的缓存。通过测试，我们会看到第一版实现还不够好，需要加以强化。随后，我们会为缓存中的值添加``存活时间''（time to live），确保不会存下过期的信息。最后，我们会讲一些使用缓存的良好实践。这个项目有以下要求：
+
+\begin{itemize}
+  \item 编写一个缓存，存储成对的键和值。
+  \item 应当能在缓存中存入、读取和删除数据。
+  \item 确保缓存是并发安全的。
+\end{itemize}
+
+\section{一个朴素的缓存}
+
+先从一个简短的定义开始。缓存是一种存储，用于取回先前保存过的值。要访问这些值，缓存的使用者会使用与首次登记该值时相同的键。关于缓存，这里需要提到三个重要概念：
+
+\begin{itemize}
+  \item 缓存应当能存储任何新的键值对。
+  \item 用某个键取值时，缓存应当返回先前存入缓存的内容。
+  \item 通常，使用缓存的全部意义就在于速度，所以缓存必须快。
+\end{itemize}
+
+下面是缓存可以容纳的两组键值对示例：
+
+\begin{itemize}
+  \item 电话号码（string）——姓名（string）
+  \item 年份（uint）——历届奥运会上各国的全部奖牌得主（map[Country][]Athlete）
+\end{itemize}
+
+通过这些例子我们会看到，键可以有多种形态，而值的形态只会更多。这一点我们稍后细讲，但现在，我们需要理解泛型以及如何在 Go 中书写泛型，这样才能写出缓存的第一个实现。
+
+我们得先讲一点理论，但会尽量简短。毕竟我们主要是来动手做项目的。
+
+\subsection{泛型入门}
+
+Go 在设计上是强类型的，这意味着每个变量都必须有显式的类型。通过阅读代码，你就能看出哪个变量是字符串、哪个是整数，从而理解它们如何交互、代码在做什么。如果你的函数接收一个 \texttt{float64}，那除了 \texttt{float64} 你什么也给不了它：
+
+\begin{gocode}[]
+func prettyPrint(f float64){
+    fmt.Printf("> %f", f)
+}
+
+prettyPrint(.25)
+\end{gocode}
+
+这样清晰明了，可我们要怎样写一个打印整数的函数呢？难道要把这三行复制一遍、再改几个字符？信不信由你，远古世代的地鼠（Go 程序员）至今还记得那个年代——
+% SOURCE_PDF_PAGE: 003
+是的，那时候你确实得把这些小函数到处复制。但泛型类型，也就是泛型（generics），横空出世，把我们从海量的样板代码中解救了出来。
+
+泛型让你编写代码时不必显式给出函数接收或返回的数据类型。类型改为在你使用函数时再定义。函数只是一个例子。你根本无法想象这项伟大特性扫除了多少样板代码（以及 bug）。但如同一切好东西，我们不应滥用它，也应当清楚自己正在用它做什么。
+
+它是如何工作的？我们不去指定一个真实类型（比如前文的 \texttt{float64}），而是定义一个泛型类型，并给它一个约束（constraint）。约束最少的类型约束是关键字 \texttt{any}，它名副其实：任何类型都行。下面是一个单一函数的例子，它先接收一个 \texttt{float64} 作为参数 \texttt{t}，随后又用同一个参数 \texttt{t} 接收一个 \texttt{string}。注意函数的签名有些不同——我们在函数名和参数之间使用了方括号。我们在这些方括号里声明：在本函数声明的作用域内，\texttt{T} 是类型约束 \texttt{any} 的占位符。类型 \texttt{T} 在我们调用函数时才被确定：
+
+% SOURCE_PDF_PAGE: 004
+\begin{gocode}[]
+func prettyPrint[T any](t T){
+    fmt.Printf("> %v", t) #1
+}
+
+prettyPrint[float64](.25) #2
+prettyPrint[string]("pockets")
+
+#1 %f was used for floats; use %v instead.
+#2 Calls the function with various types
+\end{gocode}
+
+\begin{codeannotations}
+\item 之前浮点数用的是 \texttt{\%f}；请改用 \texttt{\%v}。
+\item 用不同的类型调用该函数
+\end{codeannotations}
+
+在这个例子里，我们不能再在 \texttt{Printf} 中使用 \texttt{\%f} 动词，因为它只适用于浮点数。调用函数时，我们要指明类型 \texttt{T} 应当是什么。
+
+% SOURCE_PDF_PAGE: 005
+但类型 \texttt{T} 具体是什么？这取决于我们决定在调用时传给函数什么。这个函数是参数化的；也就是说，在编译时刻，所需的各个变体——这里是 \texttt{float32} 和一个 \texttt{string}——都会像任何具体类型的函数一样被生成并编译。唯一的差别是你的代码可复用性好了太多。
+
+\begin{infobox}{类型推断}
+如果类型 \texttt{T} 出现在函数的参数中，Go 编译器就能在每次调用函数时检测出它代表什么类型，而不需要我们调用时用方括号给出的提示。例如，由于上个例子中函数的参数恰好是类型 \texttt{T}，Go 编译器会注意到我们分别用 \texttt{float64} 和 \texttt{string} 参数调用了这个函数。前面的代码可以简化为：
+
+\begin{gocode}[]
+func prettyPrint[T any](t T){
+    fmt.Printf("> %v", t)
+}
+
+prettyPrint(.25) #1
+prettyPrint("pockets") #2
+
+#1 Type inference: T==float64
+#2 Type inference: T==string
+\end{gocode}
+
+\begin{codeannotations}
+\item 类型推断：\texttt{T==float64}
+\item 类型推断：\texttt{T==string}
+\end{codeannotations}
+
+类型推断可能会让泛型显得有点神奇。值得注意的是，类型推断只对输入参数生效，对返回类型无效。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 006
+\begin{infobox}{类型约束}
+我们看到，随 Go 1.18 与泛型一同引入的 \texttt{any}，实际上是个毫无约束的关键字，可以用作类型约束。它等价于 \texttt{interface\{\}}。
+
+另一个内置约束叫作 \texttt{comparable}，所有可比较的类型都实现了它，也就是说，所有支持用 \texttt{==} 或 \texttt{!=} 比较两个元素的类型。属于这一类的有布尔值、数字、字符串、指针、通道、由可比较类型组成的数组，以及字段全部为可比较类型的结构体。切片、映射和函数不可比较。如果你创建一个映射并想让它的键是泛型的，这个键就必须可比较。我们会在 7.1.3 节进一步讨论。
+
+前面几章里我们见过接口如何工作，也见过任何结构体只要挂上了签名正确的全部方法，就能实现一个接口。类型约束就是接口，当然，你可以声明自己的约束。由于 \texttt{\%v} 的格式化不算漂亮，这里有一个不同的版本：
+
+\begin{gocode}[]
+func prettyPrint[T fmt.Stringer](t T){
+    fmt.Printf("> %s", t) #1
+}
+
+#1 Using %s calls .String()
+\end{gocode}
+
+\begin{codeannotations}
+\item 使用 \texttt{\%s} 会调用 \texttt{.String()}
+\end{codeannotations}
+
+区别在于，我们现在不能再把浮点数和整数传给函数了，因为它们没有实现 \texttt{Stringer} 接口；但任何实现了该接口的结构体都可以传进来。如果你还记得上一章货币转换器里的 \texttt{Amount}——它实现了这个接口，所以我们可以这样调用：
+
+\begin{gocode}[]
+amount, err := money.NewAmount(...)
+prettyPrint(amount)
+\end{gocode}
+\end{infobox}
+
+\begin{infobox}{泛型类型}
+假设我们想定义一组 \texttt{Amount}，以便对它们执行某些特定的操作：
+
+% SOURCE_PDF_PAGE: 007
+\begin{gocode}[]
+type Group []Amount
+
+func (g Group) PrettyPrint() {
+    for _, v := range g {
+        prettyPrint(v)
+    }
+}
+
+func main() {
+    var g Group
+    g.PrettyPrint()
+}
+\end{gocode}
+
+假设我们想对铅笔、云朵和连衣裙做同样的事情。那就可以把这个组做成泛型的：
+
+\begin{gocode}[]
+type Group[T any] []T
+\end{gocode}
+
+\texttt{Group} 是参数化的：它是一组 \texttt{T}，是 \texttt{T} 切片的别名。Go 不允许我们为切片类型写方法（\texttt{func (s []string) Do()}）；编译器会报 \texttt{Invalid receiver type} 错。但借助我们的 \texttt{Group}，就能在这个参数化类型上定义方法：
+
+\begin{gocode}[]
+func (g Group[T]) PrettyPrint() {
+    for _, v := range g {
+        prettyPrint(v)
+    }
+}
+\end{gocode}
+
+方法的接收者也必须参数化。的确，循环中的变量 \texttt{v} 的类型是 \texttt{T}，编译器需要知道去哪里查找 \texttt{T} 的含义。在实例化 \texttt{Group} 之前，它什么也不是：
+
+\begin{gocode}[]
+var g Group[Cloud]
+g.PrettyPrint()
+\end{gocode}
+
+现在，编译器就能创建出一个支持云朵——而且只支持云朵——的 \texttt{Group} 版本。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 008
+\begin{infobox}{声明你自己的约束}
+最后，如果你想支持多种整数类型呢？或者只想支持 \texttt{int} 和你自己的 \texttt{PocketInt}，此外一概不收？你没法让基本类型去实现接口，但你可以定义联合接口（union interface）：
+
+\begin{gocode}[]
+type summable interface {
+    int | int32 | int64
+}
+\end{gocode}
+
+这意味着任何能接收 \texttt{summable} 作为参数的函数都会接受 \texttt{int}、\texttt{int32} 或 \texttt{int64}，并且能够使用 \texttt{+} 运算符。然而，如果你此时定义一个底层是 \texttt{int} 的新类型（换句话说，一个底层类型为 \texttt{int} 的新类型），它是不会被包含在内的。例如：
+
+\begin{gocode}[]
+type age int
+\end{gocode}
+
+为了支持所有实际上就是 \texttt{int} 的类型，我们使用 \texttt{\textasciitilde int}（带一个波浪号）的语法，把所有底层类型为 \texttt{int} 的类型都包含进来。下面的接口就包含了刚才定义的 \texttt{age} 类型：
+
+\begin{gocode}[]
+type summable interface {
+    ~int | ~int32 | ~int64
+}
+\end{gocode}
+
+如果你的程序是研究天文学的，特别需要用 \texttt{int64} 表示恒星的年龄，那就可以修改你的类型，一切都会顺理成章。理论就讲到这里；来写这个缓存吧。
+\end{infobox}
+
+\subsection{项目初始化}
+
+因为这个项目要做的是一个库，我们会采用一种常见的文件组织方式。在第 4 章中，我们发布的模块里包含一个叫 \texttt{pocketlog} 的包。虽然这在需要介绍包概念的时候很不错，但大多数开源库都会把类型放在模块的根目录下，这样可以避免繁琐的导入路径。这里，我们希望用户能以最小的代价导入我们的 cache 包，这意味着要把缓存放在尽可能靠前的位置。我们的文件组织如下：
+
+\begin{shellcode}[]
+> tree learngo-pockets/genericcache
+.
+├── cache.go
+└── go.mod
+\end{shellcode}
+
+% SOURCE_PDF_PAGE: 009
+这样，任何人都可以通过导入我们的模块并使用 \texttt{genericcache.Cache} 来使用我们的库。当然，后续还需要其他文件，但这些是用户所需的最低限度。
+
+先新建一个 \texttt{genericcache} 目录，然后在该目录中运行下面这行命令来初始化模块：
+
+\begin{shellcode}[]
+> go mod init learngo-pockets/genericcache
+\end{shellcode}
+
+\subsection{实现}
+
+前面说过，缓存就是一种能让我们方便取回数据的存储。就本项目而言，我们决定做一个键值存储，几乎可用于任何类型的键和任何类型的值。我们要求键是可比较的——也就是说，我们需要能判断两个键是否视为相等。这通过约束 \texttt{comparable} 来实现。
+
+在我们的测试中，用的是键为整数、值为字符串的简单情形，但你尽可以换成其他类型。拿不准的话，随时可以参考我们提供的代码找找灵感。
+
+% SOURCE_PDF_PAGE: 010
+在包中新建一个 \texttt{cache.go} 文件，创建一个 \texttt{Cache} 类型，如下一个代码清单所示。它是一个结构体，只持有一个字段：一个映射。键和值的类型都是参数化的。
+
+\begin{gocode}[title={代码清单 7.1 \texttt{cache.go}}]
+// Cache is key-value storage.
+type Cache[K comparable, V any] struct {
+    data  map[K]V
+}
+\end{gocode}
+
+如你所见，我们定义了两个类型参数，按照惯例给它们取了单个大写字母的名字。\texttt{K} 表示键（key），\texttt{V} 表示值（value），已经再直白不过了。
+
+马上我们就面临一个抉择：存 \texttt{map[K]V} 还是 \texttt{map[K]*V}？用大白话说，缓存应当存用户值的副本，还是只存指向它们的指针？两种选择各有优劣，需要在多用内存（存副本）与多用 CPU（因为要解析指针的间接寻址）之间做出权衡。我们决定采用刚才展示的实现——毕竟，如果用户想用的类型 \texttt{V} 本身就是指向其值的指针，他们照样可以用！这也意味着我们的缓存对自己的内存负全责：一旦一个值被加入缓存，不通过缓存就无法更新它。
+
+\subsubsection*{NEW}
+
+因为我们的 \texttt{Cache} 包含一个映射，所以在使用前必须先初始化这个映射。在结构体里使用映射有一个副作用：它的零值（未初始化的映射）无法直接使用，否则会引发运行时错误，比如 nil 指针解引用。为了避免这一点，我们定义一个构造函数 \texttt{New}，由它替我们初始化映射，如代码清单 7.2 所示。只暴露 \texttt{Cache} 类型而不直接暴露其内部映射，我们就能强制使用构造函数，确保
+% SOURCE_PDF_PAGE: 011
+所有 \texttt{Cache} 实例都得到妥善初始化。这种设计降低了由未初始化映射引发 bug 的风险，同时把缓存的内部实现细节封装了起来。
+
+\begin{gocode}[title={代码清单 7.2 \texttt{cache.go}}]
+// New creates a usable Cache.
+func New[K comparable, V any]() Cache[K, V] {
+    return Cache[K, V]{
+        data: make(map[K]V),
+    }
+}
+\end{gocode}
+
+\subsubsection*{READ}
+
+对缓存执行得最多的操作通常是读取，这正是缓存的全部意义所在。我们来编写实现这一功能的 \texttt{Read} 方法，如代码清单 7.3 所示。这个方法接收一个类型合适的键，返回值——类型同样合适。当键在缓存中找不到——也就是值尚未存进去——时返回什么，由我们自己决定。提醒一下，Go 默认的映射实现会返回一个值加一个布尔值，这里我们就沿用这一做法。如果你想用错误（error），就得决定如何返回错误：通过常量加本地类型，或者通过导出变量。当然，你也可以像往常一样在 return 行里直接调用 \texttt{errors.New}，但用户会更难与已知值比较并决定下一步做什么。与映射保持一致的接口会让最终用户更清楚该怎么用。
+
+\begin{gocode}[title={代码清单 7.3 \texttt{cache.go}：在缓存上实现 \texttt{Read} 方法}]
+// Read returns the associated value for a key,
+// and a boolean to true if the key is absent.
+func (c *Cache[K, V]) Read(key K) (V, bool) {
+    v, found := c.data[key]
+    return v, found
+}
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 012
+最常用的函数写好了。我们可以为它编写单元测试，但在当前情形下，涉及多个操作的集成测试似乎是更好的主意。如果现在写单元测试，它会与实现选择绑死，对未来任何重构都帮不上忙。到头来我们测试的将是``Go 能不能从映射里读数据''，而这早已被 Go 的开发者们覆盖过了。要编写从缓存读取的集成测试，得先能往缓存里写点东西。
+
+\subsubsection*{UPSERT}
+
+如果想从缓存里读值，就得先提供把它放进去的办法。这就引出下面这个问题：应当允许用户多次插入同一个键吗？在大多数缓存里，较新的值通常比较旧的值更有意思，因此我们决定静默覆盖缓存中任何已存在的值。不过，其他实现也可能选择在添加键时发现键已存在就返回错误。
+
+因为我们会覆盖任何可能已存在的数据，所以方法可以命名为 \texttt{Upsert}——``insert''（插入）与``update''（更新）的合成词——如代码清单 7.4 所示。它保证键会带着指定值出现在缓存中。\texttt{Upsert} 本可以返回错误。比如，我们可能想限制缓存中的元素数量——触及上限就是一个离开正常路径（happy path）的充分理由。让我们从一开始就留好这扇门。毕竟，返回错误在 Go 里再正常不过了。
+
+% SOURCE_PDF_PAGE: 013
+\begin{gocode}[title={代码清单 7.4 \texttt{cache.go}：在缓存上实现 \texttt{Upsert} 函数}]
+// Upsert overrides the value for a given key.
+func (c *Cache[K, V]) Upsert(key K, value V) error {
+    c.data[key] = value
+    // Do not return an error for the moment,
+    // but it can happen in the near future.
+    return nil
+}
+\end{gocode}
+
+胜利在望。你可以开始写一个单元测试：写入、读取、检查返回类型、检查键不存在时返回的值、为同一个键再写入另一个值，如此等等。现在已经能覆盖的情形就已经很多了。
+
+\subsubsection*{DELETE}
+
+我们需要的最后一个操作是从缓存中删除键，用于明确知道某个值已经过期的情况。举例来说，假设我们在预计算每个用户所在的群聊列表。有人新建了一个会话并邀请了五个人。这五个人每个人都需要重新计算这份列表，但只在他们打开聊天应用时才需要。我们可以把他们的键作废，让系统在下一次需要该列表时重新计算。
+
+\begin{infobox}{注意}
+大多数缓存都在无实质上限地增长。本章末尾我们会给出几种让缓存保持可控的方法。
+\end{infobox}
+
+来暴露一个方法，确保某个条目不再存在于缓存中。这个方法接收一个键，并从缓存中移除对应条目。可如果这个键一开始就不在我们的缓存里呢？
+
+Go 对这个问题的回答——至少对映射而言——是幂等（idempotent）：我们不把它看作``试图移除一个条目''，而是把它看作``确保
+% SOURCE_PDF_PAGE: 014
+执行删除之后，这个条目已不在映射中。我们的 \texttt{Delete} 方法决定遵循同样的哲学，如下面的代码清单所示。如果键不在缓存里，我们的方法就什么也不做——通常缩写为``无操作''（no-op）。
+
+\begin{gocode}[title={代码清单 7.5 \texttt{cache.go}：在缓存上实现 \texttt{Delete} 方法}]
+// Delete removes the entry for the given key.
+func (c *Cache[K, V]) Delete(key K) {
+    delete(c.data, key)
+}
+\end{gocode}
+
+\subsubsection*{测还是不测}
+
+给这样的一行代码做单元测试，是开发团队需要共同回答的问题：我们想在这件事上做到什么程度的测试；我们测的是自己的代码，还是 Go 的映射本身？因为我们没有在映射之上添加任何逻辑，我们决定：到目前为止的代码还不需要单元测试。这并不妨碍我们写一些小型的功能测试——一串调用，确保我们确实把值插入了缓存，并且能取回它们。
+
+我们缓存的第一版实现看似已覆盖需求——可以存储数据、用插入时的键取回值、必要时删除一些数据。世界看起来完美无缺。而恰恰就在这个时刻，团队里某个人在代码评审中留了一句评论：这是线程安全的吗？
+
+这个问题问得漂亮，而要回答它，我们需要理解如何证明它（不）安全。当多个线程——程序中被并行化的部分——同时访问同一资源并试图修改它时，就会谈到线程安全。设想一个现实中的类似场景：你和朋友共进晚餐，
+% SOURCE_PDF_PAGE: 015
+突然两人都渴了。你们都想拿起那瓶水往自己杯子里倒。如果你们同时抓住瓶子、同时往不同的杯子里倒，水大概会洒得到处都是，而且最后谁也不确定自己的杯子到底满没满。对我们的缓存来说，这就好比两个线程试图为同一个键写入不同的值。我们怎么知道这不会弄坏任何东西？
+
+\section{认识 goroutine}
+
+我们先回到本质，想想计算机是什么——一组连接在一起的设备。我们有一个处理器（CPU），即负责执行实际计算的中心单元；有几根内存条，用来存储计算模块要用的值；一个电源；还有许多额外的部件，例如存储持久数据的硬盘、把一切连接起来的主板，等等。这里我们把注意力放在处理器上。
+
+处理器的职责是运行编译器生成的二进制代码。每个程序在启动时被加载进内存，然后在处理器上执行。这是否意味着一个处理器一次只能运行一个程序？答案是否定的，原因有二。第一，程序运行在核心（core）上，核心是处理器中执行二进制代码的部分。进入 21 世纪（2000 年代）后，处理器制造商开始出货带两个或更多核心的处理器。每个核心同一时刻只能专注于一件事。核心越多，就能在一台计算机上同时独立运行多个任务。第二，我们的操作系统本身也是一个程序，它负责协调不同任务和程序在这些核心上的运行。用户界面总得在某个地方跑起来，总得有某段代码读取键盘输入，也总得有东西跟你的硬盘通信。
+
+% SOURCE_PDF_PAGE: 016
+为了防止计算机因为某个核心运行着一个永不结束的程序而卡死，计算机科学家们为 CPU 实现了调度器（scheduler）——一种``暂停''某个程序、让另一个程序运行的机制。多亏了调度器，多个程序才能在单核计算机上``同时''运行。进入 21 世纪后，多核计算机变得越来越便宜、越来越普及，为用户带来了真正的并行。
+
+对许多程序员来说，一台机器上有多个核心意味着有更多资源可以用来跑程序。毕竟，如果负载能分摊到两个核心而不是一个上，也许程序就能跑快一倍！现在就给你泼盆冷水——在大多数情况下，事实并非如此。
+
+那我们该如何利用这一特性？可以同时独立运行的程序片段，叫作线程（thread）、协程（coroutine）、纤程（fiber），或者在 Go 里——goroutine。本节你将了解 goroutine 是什么，以及如何创建和管理它们。
+
+\subsection{什么是 goroutine？}
+
+许多其他编程语言在描述一个为并行执行而启动的任务时，会使用``线程''（thread）这个词。在 Go 里，我们的看法有所不同。首先，我们不直接使用系统线程，而是使用 Go 的 goroutine。goroutine 由随你的 Go 程序一同运行的 Go 运行时（runtime）层管理。goroutine 和线程之间有许多差异，但这不是本书要讨论的话题。你只需记住：goroutine 是在后台启动一段代码的方式：
+
+% SOURCE_PDF_PAGE: 017
+\begin{gocode}[]
+a = taskA()
+b = taskB() #1
+
+#1 Only executed when the previous has finished
+\end{gocode}
+
+\begin{codeannotations}
+\item 只有在前一个任务结束后才会执行
+\end{codeannotations}
+
+当然，大多数时候我们希望程序按顺序执行——我们希望第二个任务在第一个之后运行。但有些时候，我们并不需要第一个任务成功返回后才运行第二个。来一个现实世界的对比：假设你在准备一份咖喱。你有一锅咖喱酱和一锅米饭。菜谱说每样都要煮 10 分钟。你可以先煮 10 分钟酱，等它好了再煮 10 分钟米——但酱都凉了。你会花 20 分钟准备这顿饭，而其实两锅可以同时煮——只要你的灶台够用——总时间就能缩到 10 分钟左右。
+
+这正是 goroutine 要解决的问题。它们让你能同时运行多个任务——前提是你能把它们启动起来。后面这半句通常不成问题——goroutine 非常轻量，除非你打算一口气创建上百万个，否则完全没问题。
+
+现在，本节里有一个用过的词需要仔细推敲。我们用了``并行地''（in parallel）、``同时地''（simultaneously）、``在后台''（in the background）和``并发地''（concurrently）来表达``goroutine 不会阻塞它的调用者''这个意思。多年来，这些词时常被混用。所幸，Go 的共同创造者 Rob Pike 写下了一些谚语（\url{https://go-proverbs.github.io/}），本章会穿插引用几条，或许能帮你澄清概念。
+
+\begin{tipbox}{Go 谚语}
+并发不是并行。（Concurrency is not parallelism.）
+\end{tipbox}
+
+% SOURCE_PDF_PAGE: 018
+在 Pike 看来，并发与并行不是可以互换的词。拥有两个（或更多）goroutine 并不保证它们会在多个核心上同时执行，只保证它们会各自独立地运行——无论是变好还是变糟。并发关注的是如何编写代码来支撑 goroutine，而并行则是代码执行时实际发生的事情。
+
+\subsection{如何启动一个 goroutine}
+
+记得吗，Go 从创立之初就抱着一个理念：启动 goroutine 应当是件简单的事。Go 的创造者们把这件事做得极其直白：想让一个函数在后台运行，只需要在调用前加上 \texttt{go}。就这么简单。它不需要任何特殊的导入或编译选项。下面的代码清单给出了一个简单的例子。
+
+\begin{gocode}[title={代码清单 7.6 \texttt{parallel.go}：一个运行 goroutine 的程序示例}]
+package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func printEverySecond(msg string) {
+    for i := 0; i < 10; i++ {
+        fmt.Println(msg)
+        time.Sleep(time.Second)
+    }
+}
+
+func main() {
+    // Run two goroutines
+    go printEverySecond("Hello") #1
+    go printEverySecond("World") #2
+
+    var input string
+    fmt.Scanln(&input) #3
+}
+
+#1 Launches a first goroutine in the background
+#2 Launches a second goroutine in the background
+#3 Waits for a keypress to end the program
+\end{gocode}
+
+\begin{codeannotations}
+\item 在后台启动第一个 goroutine
+\item 在后台启动第二个 goroutine
+\item 等待一次按键，然后结束程序
+\end{codeannotations}
+
+% SOURCE_PDF_PAGE: 019
+当执行到达 \texttt{fmt.Scanln} 那一行时，我们已经有三个 goroutine 在同时运行——主 goroutine，以及每秒打印一次消息的那两个。不过使用 goroutine 有个小缺点：它们在后台启动，这意味着它们结束的时候不会通知调用者！对前面的例子来说，问题用代码写出来就是这样：
+
+\begin{gocode}[]
+go cookCurrySauce()
+go cookRice()
+// how do I know the food is ready?
+\end{gocode}
+
+解决这个问题有两条主要路径：一是使用通道（channel），二是使用一个解决该问题的库。
+
+\subsection{用通道通知 goroutine 已经结束}
+
+Go 有一种专门的类型，叫作通道（channel），可用于 goroutine 之间的通信。通道就是 Go 中 goroutine 相互交流的方式。我们可以通过通道在 goroutine 之间发送触发信号、新数据、结果、错误等等各类信息。
+
+\begin{tipbox}{Go 谚语}
+不要靠共享内存来通信；要靠通信来共享内存。（Don't communicate by sharing memory; share memory by communicating.）
+\end{tipbox}
+
+通道可以看作一条管道，数据可以被发送进去——也可以从中取出来。在 Go 中，声明通道时要指定它将承载的消息类型。比如，如果一个通道用来传整数，我们会这样写：
+
+\begin{gocode}[]
+var c chan int
+\end{gocode}
+
+通道与映射、切片一样，需要用 \texttt{make} 函数实例化。实例化时，我们可以决定
+% SOURCE_PDF_PAGE: 020
+通道是带缓冲的（最多容纳 X 个元素）还是不带缓冲的（如果没有 goroutine 正在读取，你就没法把消息写进通道）：
+
+\begin{gocode}[]
+c := make(chan int, 10) #1
+c := make(chan int) #2
+
+#1 Buffered channel that can hold up to 1 0 elements
+#2 Unbuffered channel
+\end{gocode}
+
+\begin{codeannotations}
+\item 带缓冲的通道，最多可容纳 10 个元素
+\item 不带缓冲的通道
+\end{codeannotations}
+
+达到容量上限的带缓冲通道在写入时会``阻塞''。换句话说，只要通道已达容量且没有消息被读走，任何向通道发送的操作都会等待队列中出现空位，从而阻塞该 goroutine。向通道写入和读取的语法使用箭头：
+
+\begin{gocode}[]
+c := make(chan int) #1
+c <- 4 #2
+i := <- c #3
+
+#1 Creates a channel for integers
+#2 Writes an integer to the channel
+#3 Reads one integer from the channel
+\end{gocode}
+
+\begin{codeannotations}
+\item 创建一个整型通道
+\item 向通道写入一个整数
+\item 从通道读取一个整数
+\end{codeannotations}
+
+Go 通道的威力在于：元素被读出的顺序与发送的先后次序一致——换句话说，先进先出。
+
+最后，当不再期待新消息时，通道应被标记为关闭，不再接受写入。为此我们使用内置函数 \texttt{close}。通道关闭后仍然可以读取：
+
+\begin{gocode}[]
+c := make(chan int)
+c <- 4
+close(c) #1
+i := <- c
+
+#1 Prevents anyone from writing again into c
+\end{gocode}
+
+\begin{codeannotations}
+\item 禁止任何人再向 \texttt{c} 写入
+\end{codeannotations}
+
+从通道读取是一个阻塞调用。如果通道里没有消息，执行会一直等待，直到读到
+% SOURCE_PDF_PAGE: 021
+一条为止。因此，我们可以用一个通道来通知``某个 goroutine 完成了''：
+
+\begin{gocode}[]
+c := make(chan struct{}, 1) #1
+go func(doneChan chan <- struct{}) {
+    defer func() { #2
+        log.Println("done")
+        doneChan <- struct{}{}
+        close(doneChan) #3
+    }
+    // run task
+}(c) #4
+_ = <- c #5
+
+#1 Our channel will receive no more than one message.
+#2 Defers sending a message to the channel until end of execution
+#3 Functions in charge of writing to a channel are in charge of closing
+it.
+#4 Passes the channel to the goroutine
+#5 Synchronization point, waiting for end of goroutine
+\end{gocode}
+
+\begin{codeannotations}
+\item 我们的通道最多只会收到一条消息。
+\item 把向通道发送消息推迟到执行结束时
+\item 负责向通道写入的函数负责关闭它
+\item 把通道传给 goroutine
+\item 同步点，等待 goroutine 结束
+\end{codeannotations}
+
+这个例子引入了两个常用的做法。第一，通道可以用来通知监听者。这里我们只想通知``我们做完了''——为此我们用了 Go 的空结构体（\texttt{struct\{\}}）技巧，因为空结构体非常轻量（内存占用为 0 字节）。我们不需要一个拖着数据到处跑的复杂结构体，所以就不用。这里没有必要小题大做。
+
+第二个有意思的地方是我们作为 goroutine 运行的那个函数的签名。一个小小的箭头 \texttt{<-} 挤进了 \texttt{chan} 和 \texttt{struct\{\}} 之间。声明函数时，我们可以比``给你一个通道用''说得更精确：可以在函数签名中指明，某个通道是只用于从中读取消息、只用于向其写入消息，还是两者皆可。如果一个函数只应从字符串通道读取，它的签名可以写成 \texttt{func read(c <- chan string)}。直观上看，箭头指向通道之外，表明消息将从通道中被读出。如果我们想
+% SOURCE_PDF_PAGE: 022
+指明函数要向通道写入，可以使用 \texttt{func write(c chan <- string)} 这种语法。直观上看，箭头帮助我们理解：字符串将被发送进通道。
+
+如果既要读又要写，语法就是朴素的 \texttt{func rw(c chan string)}，这次没有箭头。不过，我们不鼓励把一个通道以又读又写的方式传给函数，因为这说明函数的职责范围太大了。我们应当能把读和写拆成两个不同的函数。
+
+最后，活儿干完后应当关闭通道，告诉正在监听的 goroutine：不会再有数据来了。当只有一个函数负责向通道写入时，就应由这个函数负责关闭通道。如果你并不想通知监听者``你做完了''，那么让它开着也不是问题。
+
+最后再来看一眼：如果必须协调多个 goroutine，我们会怎样写同步点（祝你好胃口！用人话来说就是``开饭''）：
+
+\begin{gocode}[]
+numRoutines := 2
+c := make(chan struct{}, numRoutines) #1
+go cookRice(c) #2
+go cookCurry(c)  #2
+for i := 0; i < numRoutines; i++ { #3
+    _ = <- c
+}
+
+#1 Creates the buffered channel of the right size
+#2 Each goroutine will send a message to the channel when done.
+#3 Synchronization point: we need to read two messages.
+\end{gocode}
+
+\begin{codeannotations}
+\item 创建容量合适的带缓冲通道
+\item 每个 goroutine 完成时会向通道发送一条消息
+\item 同步点：我们需要读到两条消息
+\end{codeannotations}
+
+\subsection{运行 goroutine 并设置同步点}
+
+用通道固然完全可行，但总感觉是在重复发明轮子。
+% SOURCE_PDF_PAGE: 023
+如果你需要定制的轮子，可巧的是，Golang 提供了两个库，能很好地替掉这些通道。一个在标准库里，另一个（目前还）在 Go 源码的实验性包里。
+
+\subsubsection*{使用 sync.WaitGroup}
+
+来看看 \texttt{sync} 包——特别是它的 \texttt{WaitGroup} 类型。\texttt{go doc sync.WaitGroup} 告诉我们，WaitGroup 可以用来等待 goroutine 结束，这正是我们想做的事。\texttt{WaitGroup} 类型暴露三个方法：
+
+\begin{itemize}
+  \item \texttt{Add(delta int)}——登记要等待的新 goroutine 数量。可以多次调用。
+  \item \texttt{Done()}——由 goroutine 用来通知 WaitGroup 它已完成任务。应当放在 \texttt{defer} 语句中调用。
+  \item \texttt{Wait()}——同步点，在 \texttt{Add()} 之后、goroutine 启动之后调用。
+\end{itemize}
+
+用我们的烹饪例子试一试吧。
+
+% SOURCE_PDF_PAGE: 024
+\begin{gocode}[title={代码清单 7.7 用 \texttt{sync.WaitGroup} 改写烹饪示例}]
+package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func main() {
+    wg := &sync.WaitGroup{} #1
+    wg.Add(2) #2
+    go cookRice(wg) #3
+    go cookCurry(wg)  #3
+    wg.Wait() #4
+}
+
+func cookRice(wg *sync.WaitGroup) {
+    defer wg.Done() #5
+    fmt.Println("Cooking rice...")
+    // prepare rice
+}
+
+func cookCurry(wg *sync.WaitGroup) {
+    defer wg.Done() #5
+    fmt.Println("Preparing curry sauce...")
+    // prepare curry
+}
+
+#1 Uses a pointer to pass the work group to other functions
+#2 Sets the correct size
+#3 Launches the goroutines
+#4 Synchronization point
+#5 Each goroutine should finish by telling the WaitGroup it's done.
+\end{gocode}
+
+\begin{codeannotations}
+\item 使用指针把 WaitGroup 传给其他函数
+\item 设置正确的数量
+\item 启动各 goroutine
+\item 同步点
+\item 每个 goroutine 结束时都应告诉 WaitGroup 自己完成了
+\end{codeannotations}
+
+在这个例子里，我们创建了一个默认的 WaitGroup。由于 WaitGroup 不暴露任何字段，它们永远都是用同一行代码创建的：\texttt{wg := \&sync.WaitGroup\{\}}——好吧，也不一定，你可以给它另取名字，不过 \texttt{wg} 是 WaitGroup 的常见名字。
+
+第二步是设置这个 WaitGroup 要负责的 goroutine 数量。这里我们对 \texttt{Add} 只做了一次调用，但多次调用 \texttt{Add(1)} 也完全没问题。当你需要处理循环时，这种写法相当常见。我们也可以把代码写成下面这样，如果你想要白米饭或者只要咖喱酱，重构起来会更容易：
+
+% SOURCE_PDF_PAGE: 025
+\begin{gocode}[]
+wg.Add(1)
+go cookRice(wg)
+wg.Add(1)
+go cookCurry(wg)
+\end{gocode}
+
+然后，关键的一步是在我们调用的每个函数里 \texttt{defer} 一次 \texttt{wg.Done()} 调用。这正是这些函数的签名都需要接收一个指向 WaitGroup 的指针的原因。如果我们传的是副本，每个函数都会对 WaitGroup \texttt{wg} 的一份副本调用 \texttt{Done()}，而原始的 \texttt{wg}（在我们的代码里位于 \texttt{main} 中）永远不会收到通知。这种情况下，调用 \texttt{Wait()} 最终会引发 panic。关于按副本传值与按引用传值的更多细节，见附录 E。
+
+最后我们调用 \texttt{wg.Wait()}，当 \texttt{Done()} 被调用的次数等于我们在这个 WaitGroup 上执行过的所有 \texttt{Add(n)} 之和时，它就会返回。
+
+对于发射到``野外''的 goroutine，WaitGroup 是一种非常常用的同步手段。在底层，为了跟踪还有多少 goroutine 未完成，它使用一个 \texttt{atomic.Uint64} 类型的字段。了解到 Go 暴露了可用于原子操作的类型是件有意思的事——但我们不在这里深挖这个世界。对于各自独立干活的函数，它们非常好用。然而，一旦出了岔子、需要捕获错误，唯一的办法就是通过一个错误通道：把它传给每个 goroutine，并在调用 \texttt{Wait} 之后从那里读取：
+
+% SOURCE_PDF_PAGE: 026
+\begin{gocode}[]
+wg := &sync.WaitGroup{}
+wg.Add(2)
+errChan := make(chan error, 2)
+go cookCurry(wg, errChan)
+go cookRice(wg, errChan)
+wg.Wait()
+// handle the error, if any
+select {
+case err := <- errChan:
+    // deal with the error
+default:
+    continue
+}
+\end{gocode}
+
+可以看到，借助错误通道我们确实能从 goroutine 里收回一些错误。但对我们来说不幸的是，为了读错误不得不到处传通道，而使用 WaitGroup 的初衷恰恰是不想用通道。你猜怎么着？有一个库能让我们在使用 goroutine 时处理错误。
+
+\subsubsection*{使用 golang.org/x/sync/errgroup}
+
+\texttt{errgroup} 包不在 Go 标准库里。这意味着要使用它，我们得先把这个包作为模块的依赖导入：\texttt{go get golang.org/x/sync/errgroup}。现在，看看这个包暴露了什么：
+
+\begin{shellcode}[]
+> go doc golang.org/x/sync/errgroup
+\end{shellcode}
+
+我们能在其中找到一个 \texttt{Group} 类型和四个方法——这里只讲其中三个，因为它们最常用。不过首先，创建 \texttt{Group} 有两种方式：要么用零值——\texttt{eg := errgroup.Group\{\}}——要么用 \texttt{errgroup.WithContext(ctx)} 函数。在我们的简单例子里没有上下文（context），所以选第一种；但在绝大多数情况下，推荐用第二种，这样手边就有一个 \texttt{context.Context} 类型的变量可用。（我们会在后面的章节讲 context。）在内部，\texttt{errgroup.Group} 就是一个 \texttt{sync.WaitGroup}，外加一些备用字段——主要用来处理 context 和错误。
+
+% SOURCE_PDF_PAGE: 027
+那么，我们的 \texttt{Group} 能做什么？它有一个 \texttt{SetLimit(n)} 方法，让我们想起 WaitGroup 的 \texttt{Add(n)}。但两者不同：调用 \texttt{Add(n)} 时，n 必须等于我们要启动的 goroutine 数量（也就是我们之后会为之调用 \texttt{Done()} 的那些）；\texttt{SetLimit} 不是这样运作的：它不是立刻规定要启动多少个 goroutine（\texttt{errgroup.Group} 会在内部自行跟踪），而是指定允许同时运行的 goroutine 数量上限。大多数时候，你会希望这个值等于你正在运行的 goroutine 数——这也是默认值。但有时你的 goroutine 会使用某种扩展性不佳的资源——也许你的每个 goroutine 都要调用数据库，而数据库一次只能应付 10 个调用。在这类情况下，在 \texttt{Group} 里写死一个上限完全合理。
+
+\texttt{errgroup.Group} 有一个 \texttt{Wait()} 方法，也与 WaitGroup 类型的那个类似，区别是它会返回一个错误。这一点很重要，你很快就会看到。最后，\texttt{Group} 有一个 \texttt{Go} 方法，它的参数是一个返回错误的函数。这个 \texttt{Go} 方法负责启动 goroutine，并在该函数结束时让 \texttt{Group} 知道。
+
+我们知道，Go 里许多函数都可能返回错误。在我们的例子中，\texttt{cookCurry} 就可能返回一个 \texttt{ErrIngredientNotFound} 错误。所有函数都可能返回错误，而我们不想为收回它们大费周章。\texttt{errgroup.Group} 类型的 \texttt{Wait()} 方法会返回某个 goroutine 中发生的错误。它返回的不是随便哪一条——而是（按时间顺序的）最后一条。
+
+现在我们知道了怎么用 \texttt{errgroup.Group}，把它用到烹饪示例里吧。
+
+% SOURCE_PDF_PAGE: 028
+\begin{gocode}[title={代码清单 7.8 用 \texttt{errgroup.Group} 改写烹饪示例}]
+package main
+
+import "golang.org/x/sync/errgroup"
+
+func main() {
+    var g errgroup.Group #1
+    g.SetLimit(2) #2
+    g.Go(func() error { #3
+        cookRice()
+        return nil
+    })
+    g.Go(cookCurry) #3
+    err := g.Wait() #4
+    if err != nil {
+        // handle error
+    }
+}
+
+func cookRice() {
+    // cook rice here
+}
+
+func cookCurry() error {
+    // cook curry here—this may return an error
+    return nil
+}
+
+#1 Creates the group
+#2 Sets the max number of parallel goroutines
+#3 Launches the goroutines
+#4 Synchronization point
+\end{gocode}
+
+\begin{codeannotations}
+\item 创建 Group
+\item 设置并行 goroutine 的最大数量
+\item 启动各 goroutine
+\item 同步点
+\end{codeannotations}
+
+就是这样！我们已经见到了三种控制 goroutine 同步的方式。虽然可以用通道来通知某个函数即将返回，但常见的做法是：想启动任意数量的并发调用时用 \texttt{sync.WaitGroup}；如果还想从这些调用中收回错误，就用 \texttt{errgroup.Group}。
+
+% SOURCE_PDF_PAGE: 029
+\section{一个更有线程安全范儿的缓存}
+
+回到最初的问题——我们的缓存线程安全吗？既然已经知道怎么运行 goroutine，那就来测测缓存吧！不过在运行任何测试之前，先把一句关于测试的至理名言记在心里：
+
+\begin{infobox}{注意}
+程序测试可以用来证明 bug 的存在，却永远无法证明 bug 的不存在！——Edsger Dijkstra
+\end{infobox}
+
+先看看我们现有的测试，注意一点：它极其线性，这意味着如果先做某个操作再做另一个，输出是可以预测的。然而它没有用 goroutine 运行任何东西，所以对线程安全什么也证明不了。
+
+我们的缓存在程序执行期间可能被多个 goroutine 使用；比如，多个进来的请求可能同时被处理，导致缓存在极短的时间窗口内被更新。我们先写一个模拟这些``同时''调用的测试。
+
+\subsection{使用 goroutine}
+
+我们会用 \texttt{sync.WaitGroup} 来运行 goroutine，并确保它们全部结束后测试才返回。为了让事情``出点问题''，让每个 goroutine 都往同一个缓存的同一个键写入一个不同的值。下面的代码清单是我们的写法。
+
+% SOURCE_PDF_PAGE: 030
+\begin{gocode}[title={代码清单 7.9 用 goroutine 测试缓存}]
+func TestCache_Parallel_goroutines(t *testing.T) {
+    c := cache.New[int, string]() #1
+    const parallelTasks = 10 #2
+    wg := sync.WaitGroup{}
+    wg.Add(parallelTasks) #2
+    for i := 0; i < parallelTasks; i++ {
+        go func(j int) { #3
+            defer wg.Done()
+            c.Upsert(4, fmt.Sprint(j)) #4
+        }(i)
+    }
+    wg.Wait() #5
+}
+
+#1 One cache, used by all goroutines
+#2 Sets the max number of parallel goroutines
+#3 Launches the goroutine
+#4 Each goroutine calls Upsert.
+#5 Synchronization step
+\end{gocode}
+
+\begin{codeannotations}
+\item 一个缓存，被所有 goroutine 使用
+\item 设置并行 goroutine 的最大数量
+\item 启动 goroutine
+\item 每个 goroutine 都调用 \texttt{Upsert}
+\item 同步步骤
+\end{codeannotations}
+
+在这个测试中，我们启动了 10 个 goroutine，每个负责为同一个键向缓存写入一个不同的值。
+
+\subsection{使用 t.Parallel()}
+
+或者，我们可以用 \texttt{testing} 包来执行并行测试。这个功能在两种场景下特别有用：一是你知道某些步骤相互独立、可以同时运行，想减少测试的总耗时；二是你想确认自己没有数据竞争（data race）。
+
+其要领是：如果某个测试函数包含 \texttt{t.Parallel()} 这一行，Go 测试框架就会把它与同一作用域内同样带有 \texttt{t.Parallel()} 的其他函数一起运行。换句话说，这个函数的执行不会阻塞其他测试函数的执行。
+
+% SOURCE_PDF_PAGE: 031
+我们来写一个使用 \texttt{t.Parallel()} 功能的测试。测试中，我们要让两个不同的调用往缓存的同一个索引写值，两个值各不相同。
+
+\begin{gocode}[title={代码清单 7.10 使用 \texttt{t.Parallel()} 的示例}]
+func TestCache_Parallel(t *testing.T) {
+    c := cache.New[int, string]() #1
+    t.Run("write six", func(t *testing.T) {
+        t.Parallel() #2
+        c.Upsert(6, "six")
+    })
+    t.Run("write kuus", func(t *testing.T) {
+        t.Parallel() #3
+        c.Upsert(6, "kuus")
+    })
+}
+
+#1 One cache, used by all goroutines
+#2 This goroutine can be executed along with another.
+#3 This goroutine can also be executed along with another.
+\end{gocode}
+
+\begin{codeannotations}
+\item 一个缓存，被所有 goroutine 使用
+\item 这个 goroutine 可以与另一个一起执行
+\item 这个 goroutine 同样可以与另一个一起执行
+\end{codeannotations}
+
+现在运行它，看看会发生什么：在 \texttt{go test} 下一切看起来都好。然而我们在这里作弊了——我们写这个测试就是因为知道应该会出问题。我们知道，同时 upsert 两个不同的值恰恰就是数据竞争，而我们希望它被抓住。可怎么做呢？
+
+\subsection{使用 go test -race .}
+
+\texttt{go test} 命令自带若干标志。用 \texttt{go help test} 可以找到它们，它会返回一份简短的清单——即 \texttt{-args}、\texttt{-c}、\texttt{-exec}、\texttt{-json} 和 \texttt{-o}——但它还告诉我们，build 命令的标志会被 test 命令继承。看看 \texttt{go help build} 的输出：其中最前面的标志之一就是 \texttt{-race}，它启用竞争检测（race detection），正是我们要找的。
+
+带上 \texttt{-race} 标志再跑一次测试：\texttt{go test -race .}。我们会得到如下输出：
+
+% SOURCE_PDF_PAGE: 032
+\begin{shellcode}[]
+> go test --trimpath -race .
+==================
+WARNING: DATA RACE
+Write at 0x00c0000a53e0 by goroutine 13:
+  runtime.mapassign_fast64()
+      runtime/map_fast64.go:93 +0x0
+  learngo-pockets/genericcache.(*Cache[...]).Upsert()
+      learngo-pockets/genericcache/cache.go:28 +0x124
+  learngo-pockets/genericcache_test.TestCache_Parallel.func1()
+      learngo-pockets/genericcache/cache_test.go:73 +0x97
+  learngo-pockets/genericcache_test.TestCache_Parallel.func2()
+      learngo-pockets/genericcache/cache_test.go:74 +0x47
+Previous write at 0x00c0000a53e0 by goroutine 20:
+  runtime.mapassign_fast64()
+      runtime/map_fast64.go:93 +0x0
+  learngo-pockets/genericcache.(*Cache[...]).Upsert()
+      learngo-pockets/genericcache/cache.go:28 +0x124
+  learngo-pockets/genericcache_test.TestCache_Parallel.func1()
+      learngo-pockets/genericcache/cache_test.go:73 +0x97
+  learngo-pockets/genericcache_test.TestCache_Parallel.func2()
+      learngo-pockets/genericcache/cache_test.go:74 +0x47
+\end{shellcode}
+
+如你所见，Go 检测到我们同时往同一个索引写了两次。这就构成一次数据竞争，会让我们的缓存不具备线程安全性。
+
+你可能注意到我们没有介绍 \texttt{-\-trimpath} 标志。Go 测试框架的默认行为是输出失败测试的绝对路径（以及通向失败的调用栈）。使用 \texttt{-\-trimpath}，我们告诉 Go 只输出从模块根目录开始的路径。这样在分享输出时会更清爽。
+
+现在我们可以回答前面的问题了：我们这版缓存实现不是线程安全的。这是设计与安全性上的严重缺陷，必须处理。
+
+\subsection{添加互斥锁}
+
+谈到限制对资源的同步访问，计算机科学家 Edsger Dijkstra 提出了信号量（semaphore）的概念。信号量是一个计数器，跟踪访问某一资源的线程数量。信号量被用来允许特定数量的线程
+% SOURCE_PDF_PAGE: 033
+同时访问一个变量、一条连接、一个套接字，等等。我们可以把信号量推到极致：只允许恰好一个线程访问资源。这种确保对资源互斥访问的信号量，得名``互斥锁''（mutex，mutual exclusion 的缩写）。通过标准库 \texttt{sync} 包中定义的 \texttt{Mutex} 类型，Go 让我们得以使用互斥锁。
+
+\begin{tipbox}{Go 谚语}
+通道负责编排；互斥锁负责串行化。（Channels orchestrate; mutexes serialize.）
+\end{tipbox}
+
+\subsubsection*{sync.Mutex 类型}
+
+在 Go 里声明一个简单互斥锁的方式如下：
+
+\begin{gocode}[]
+var mu sync.Mutex
+\end{gocode}
+
+在深入用法之前，先多了解一点互斥锁到底是什么。互斥锁是一种同步原语（synchronization primitive），防止多个 goroutine 同时访问共享资源。把它想成门上的一把锁：同一时刻只有一个 goroutine 能进入被锁住的区段，从而保证独占访问。
+
+使用互斥锁时，永远记住：它保护的是对特定资源的访问。为了清晰和安全，请把互斥锁放在代码中尽量靠近它所保护资源的位置。
+
+看看 \texttt{go doc sync.Mutex}。我们会发现 Mutex 暴露了 \texttt{Lock()}、\texttt{Unlock()} 和 \texttt{TryLock()}。不过，只要瞥一眼它的文档 \texttt{go doc sync.Mutex.TryLock} 就会看到：求助于 \texttt{TryLock()} 往往暗示着更深层次的设计问题，因为它很少是同步的最佳方案。
+
+当我们希望某段代码独占资源时就锁上互斥锁，用完之后再解锁。
+
+% SOURCE_PDF_PAGE: 034
+我们差不多可以开始用互斥锁了，但文档里还有最后一句话值得牢记：``Mutex 在首次使用之后不得复制。''把互斥锁按值作为参数传给函数是一个错误，通常会在加锁或解锁时导致出乎意料的行为。互斥锁以及包含互斥锁的结构体都必须以指针传递。
+
+Mutex 的零值是未锁定状态。使用互斥锁需要特别注意代码的结构。一个常见的错误来源是：函数提前退出，忘了解锁。作为最佳实践，我们建议在调用 \texttt{Lock()} 之后立刻用 \texttt{defer} 推迟调用 \texttt{Unlock()}。会有少数情况这并不完全符合你的需要，但它们是``推迟解锁''这条通用规律的例外。
+
+回到代码，给缓存加一把互斥锁吧。第一步，把互斥锁放在想保护的资源旁边——也就是 \texttt{Cache} 结构体内部的 \texttt{data} 映射旁边。
+
+\begin{gocode}[title={代码清单 7.11 \texttt{cache.go}：带互斥锁的缓存}]
+type Cache[K comparable, V any] struct {
+    mu   sync.Mutex
+    data map[K]V
+}
+\end{gocode}
+
+\texttt{Cache} 类型的每个方法都加上同样两行，确保同一时刻只有一个 goroutine 能进入：
+
+\begin{gocode}[]
+c.mu.Lock()
+defer c.mu.Unlock()
+\end{gocode}
+
+现在可以重跑 \texttt{go test -race .}：应该再也看不到任何数据竞争了。互斥锁看起来完成了任务。然而使用互斥锁并非没有代价——每次加锁（和解锁）都有执行时间上的开销。因此，
+% SOURCE_PDF_PAGE: 035
+值得检查一下我们是否对互斥锁的使用过于热情。在我们的例子里，我们固然确保了没有两个 goroutine 同时更新缓存内容，但同时也阻止了两个 goroutine 同时读取缓存——而读取并不冲突。
+
+\subsubsection*{sync.RWMutex 类型}
+
+针对这一具体需求，标准库在 \texttt{sync} 包里还暴露了另一种互斥锁——\texttt{RWMutex}，即读写互斥锁。它和基本的 Mutex 非常相似——同样暴露 \texttt{Lock()} 和 \texttt{Unlock()}——但除此之外，还有 \texttt{RLock()} 和 \texttt{RUnlock()} 方法，用于只想读数据的场合。任意数量的 goroutine 可以调用 \texttt{RLock()} 而互不阻塞；可一旦有人调用了 \texttt{Lock()}，任何 goroutine 就都无法访问该资源——读和写都不行。
+
+我们可以更新代码——缓存中的互斥锁应当是 \texttt{RWMutex}。\texttt{Read} 方法应当只调用 \texttt{RLock} 和 \texttt{RUnlock}，因为它不修改缓存内容。\texttt{Upsert} 和 \texttt{Delete} 仍需要普通的 \texttt{Lock} 与 \texttt{Unlock}。作为一般规律，\texttt{sync.Mutex} 是首选，只有当你真的遇到性能问题时才考虑 \texttt{sync.RWMutex}——即便到那时，谨慎仍应是常态。由于它的接口更丰富，一不小心把 \texttt{Lock} 写成 \texttt{RLock} 会给代码带来灾难性后果——而且编译器不会提醒你。不要盲目相信 \texttt{RWMutex} 一定比 \texttt{Mutex} 快；请针对你的具体用例做基准测试（benchmark），再选用合适的那一个。
+
+再跑一次 \texttt{go test -race .}，我们应该就有底气相信没有引入新的数据竞争。现在我们拥有一个功能完备、线程安全的泛型缓存了！
+
+% SOURCE_PDF_PAGE: 036
+\section{可行的改进}
+
+尽管我们的缓存看起来已经完美，仍有几项优化可以加上。第一项是这样的理念：没有任何值会永远凝固在时间里。毕竟在不久的将来，``最后一个踏上月球的人''很可能就不再是 Gene Cernan 了。有时最好无视过期的值，而缓存应当告诉我们某个值是否已经到了保质期。
+
+我们要介绍的第二项优化与缓存的内存占用有关。如果用户不调用 \texttt{Delete()}，缓存将只增不减，存进越来越多的条目。对缓存大小不加限制是危险的——它最终可能吃掉过多内存，拖慢应用。
+
+\subsection{添加存活时间（TTL）}
+
+前文提过，过去取回的值可能变得过时。确保值不会太老的办法之一，是给每个值都打上一个``最佳使用期限''。一旦这个时间戳过去，我们就不应再信任这个值。在计算机科学中，这个时间戳叫作存活时间（time to live，TTL）。要在缓存中实现它，我们需要给每个值附上一个``最佳使用期限''。
+
+\subsubsection*{添加时间戳}
+
+多亏了泛型，我们可以通过定义一个新类型——带超时的条目——给任何值加上过期时间：
+
+\begin{gocode}[]
+type entryWithTimeout[V any] struct {
+    value   V
+    expires time.Time // After that time, the value is useless.
+}
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 037
+当我们向缓存 upsert 一个条目时，由缓存负责设置 \texttt{expires} 的值。我们将把 TTL 作为缓存的一个字段提供。这个 TTL 可以是写死在缓存里的参数，但那对用户不太友好。编写库的时候，你不知道别人会拿它做什么用。我们的缓存既可能用于千变万化的值，比如``社交媒体上最热门的帖子''，也可能用于稳定的值，比如世界各国首都的列表。最好把这个 TTL 作为 \texttt{New} 函数的必填参数暴露出来。
+
+\begin{gocode}[title={代码清单 7.12 \texttt{cache.go}：创建带 TTL 的缓存}]
+type Cache[K comparable, V any] struct {
+    ttl  time.Duration
+    mu   sync.Mutex
+    data map[K]entryWithTimeout[V]
+}
+
+func New[K comparable, V any](ttl time.Duration) Cache[K, V] {
+    return Cache[K, V]{
+        ttl:        ttl,
+        data:       make(map[K]entryWithTimeout[V]),
+    }
+}
+\end{gocode}
+
+\subsubsection*{更新各个方法}
+
+现在考虑 \texttt{Read()}、\texttt{Upsert()} 和 \texttt{Delete()} 方法会有什么变化。最容易的是 \texttt{Delete}：那里什么都不用改。无论关联值是否已过期，键都可以被移除。至于 \texttt{Upsert}，我们过去要么插入数据，要么覆盖值。现在没什么大不同——插入时，我们带上正确的过期时间写入数据；更新时，我们不仅覆盖值，也覆盖它的 \texttt{expires} 字段。
+
+% SOURCE_PDF_PAGE: 038
+\begin{gocode}[title={代码清单 7.13 \texttt{cache.go}：带 TTL 的 \texttt{Upsert}}]
+func (c *Cache[K, V]) Upsert(key K, value V) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.data[key] = entryWithTimeout[V]{
+        value:   value,
+        expires: time.Now().Add(c.ttl), #1
+    }
+}
+
+#1 Uses the cache's TTL for each value inserted
+\end{gocode}
+
+\begin{codeannotations}
+\item 为每个插入的值使用缓存的 TTL
+\end{codeannotations}
+
+最后剩下比较棘手的 \texttt{Read()} 方法。我们将在这里检查条目是否已经失效，如代码清单 7.14 所示。我们需要在现有检查之上再加一层：确认缓存对请求的键确实有值。如果值仍然有效，就可以返回它。那如果无效呢？在这种情形下，我们的实现决定不让用户知道值为什么不在缓存里——毕竟，重要的是``找不到''这个事实本身。
+
+\begin{gocode}[title={代码清单 7.14 \texttt{cache.go}：带 TTL 的 \texttt{Read}}]
+func (c *Cache[K, V]) Read(key K) (V, bool) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    var zeroV V #1
+    e, ok := c.data[key]
+    switch {
+    case !ok:
+        return zeroV, false
+    case e.expires.Before(time.Now()):
+        // The value has expired.
+        delete(c.data, key)
+        return zeroV, false
+    default:
+        return e.value, true
+    }
+}
+
+#1 A zero value is useful for our return statements.
+\end{gocode}
+
+\begin{codeannotations}
+\item 零值对我们的 return 语句很有用
+\end{codeannotations}
+
+如此实现之后，我们的 \texttt{Read()} 方法现在不得不修改映射的内容了。因此，我们不能像 7.3 节那样依赖
+% SOURCE_PDF_PAGE: 039
+RWMutex，而是改用普通的 \texttt{sync.Mutex}。这会带来一点性能上的影响——两个 \texttt{Read()} 方法再也不能同时执行了。
+
+在我们的 \texttt{Read()} 方法实现中，我们首先定义了一个未初始化的 \texttt{V} 类型值。这在返回约束类型的泛型函数里非常常见——的确，我们不能返回 \texttt{V\{\}}，因为那会要求 \texttt{V} 在运行时具有具体的类型表示。
+
+代码写完了，该测试它了。我们这里的场景是：创建一个 TTL 很小的缓存，插入一个条目，然后等待比缓存 TTL 更长的时间，如下一个代码清单所示。立即检查条目应当可用，不应报错；等一会儿再检查就应当报错了。
+
+\begin{gocode}[title={代码清单 7.15 \texttt{cache\_test.go}：测试带 TTL 的 \texttt{Read}}]
+func TestCache_TTL(t *testing.T) {
+    t.Parallel()
+    c := cache.New[string, string](5, time.Millisecond*100)
+    c.Upsert("Norwegian", "Blue")
+    // Check the item is there.
+    got, found := c.Read("Norwegian")
+    assert.True(t, found)
+    assert.Equal(t, "Blue", got)
+    time.Sleep(time.Millisecond * 200)
+    got, found = c.Read("Norwegian")
+    assert.False(t, found)
+    assert.Equal(t, "", got)
+}
+\end{gocode}
+
+测试以一次 \texttt{t.Parallel()} 调用开始，我们乐于让它与其他测试一起运行。我们建议在每个``轻量''测试里都这么做。如果某个测试需要大量资源——CPU、内存、磁盘、网络——那你可能就不想让它和别人一起跑了。就我们这个测试而言，没有理由不并行。
+
+% SOURCE_PDF_PAGE: 040
+\subsubsection*{薛定谔的困境}
+
+你可能已经注意到，我们只有在尝试通过 \texttt{Read()} 访问条目时才会丢弃过期条目。这意味着，条目可能早在我们查看之前就已过期，而我们对此一无所知。副作用是，我们的缓存可能正为一堆没用的数据占着内存。这可如何是好？
+
+嗯，直说吧：我们决定不管它。如果我们要实现一个定期检查每个条目、并清掉那些已知不再可用条目的机制，那基本上就是在为缓存写一个垃圾回收器了。我们得在 \texttt{New()} 里启动一个 goroutine，它的唯一任务就是无休止地扫描映射、删除到达 TTL 的条目。我们没有去实现这个，而是决定处理一个与之稍微沾边的问题——控制缓存的大小。
+
+\subsection{限制缓存中的最大条目数}
+
+为了防止过多条目被塞进缓存，我们要给缓存的大小设一个上限。这将作为缓存的一个属性：一个未导出的无符号整数，跟踪条目被加入和移除的情况。
+
+\subsubsection*{架构决策}
+
+当缓存中的条目数已达上限、又要向缓存添加新值时，我们需要做一个决策。在我们的实现里，我们决定允许这次操作——并丢弃另一个条目。决定从映射里移除哪个条目有许多有趣的策略；候选者可以是缓存中最老的
+% SOURCE_PDF_PAGE: 041
+条目、最新的条目、被读取最少的条目、最久没被读取的条目，等等。这些实现各自都需要在缓存中存储额外信息。选哪一种高度依赖于缓存中存的是什么信息。这里我们决定移除缓存中最老的条目，并且我们认为覆盖一个值时应当重置它的时间戳——就像 TTL 的行为一样。
+
+为此，我们需要跟踪条目插入的先后顺序。看看 Go 提供了哪些实现方式：
+
+\begin{itemize}
+  \item 用通道——这是 Go 中最直观的先进先出列表实现。Upsert 新条目时，把键登记进通道。通道里第一个元素就是最老的。但这行不通，因为我们没有覆盖用户调用 \texttt{Delete} 或 \texttt{Upsert} 的情况。在这两种情况下，我们必须把某个条目从通道``中间某处''挪到队尾。由于 Go 的通道不支持删除元素，这个实现不够好。
+  \item 用切片——毕竟，切片无需费太大劲就能处理从中间删除某个元素。Upsert 一个已存在的元素时，我们把它加进切片；想通过又一次 Upsert 覆盖该元素时，我们可以把它挪到末尾；还可以用 \texttt{Delete} 把元素从切片里删掉。
+  \item 用其他可用方案——比如，可以用二叉搜索树。
+\end{itemize}
+
+这一次我们选择切片，因为它覆盖了大部分需求。因为我们希望缓存的条目数有上限，我们已经知道可以
+% SOURCE_PDF_PAGE: 042
+给切片的容量设置一个上界。用下面的语法初始化它：
+
+\begin{gocode}[]
+chronologicalKeys := make([]K, 0, maxSize)
+\end{gocode}
+
+要检查是否已达最大条目数，我们可以把 \texttt{maxSize} 存为缓存的一个字段，也可以对 \texttt{chronologicalKeys} 切片使用内置函数 \texttt{cap}。在本书里，为了清晰起见我们选择了前者，但这带来了在结构体中多存一个值的代价：
+
+\begin{gocode}[]
+if len(c.data) == maxSize
+if len(c.data) == cap(c.chronologicalKeys)
+\end{gocode}
+
+这最后一个参数用于在执行时告知切片的容量。当元素被追加到切片、而切片的长度等于容量时，整个切片需要在内存中另行重新分配。为切片设置正确的容量可以避免这些重新分配。现在，就像处理 TTL 时那样，看看缓存里有了这个切片之后，每个导出函数会受到什么影响。
+
+\subsubsection*{实现}
+
+\texttt{New()} 应当再接收一个参数：缓存的最大尺寸（见代码清单 7.16）。在这里设默认值没什么意义——存 10 个整数的缓存，与存 10 个带大量字段的极复杂结构的缓存，大小不会一样。\texttt{reflect} 包可以帮助我们依据单个条目的内存占用为缓存设定一个最大内存尺寸，但那有点杀鸡用牛刀。不如让用户自己指定一个他们认为够用的尺寸。这样，任何内存方面的考量就都留给他们了。
+
+% SOURCE_PDF_PAGE: 043
+\begin{gocode}[title={代码清单 7.16 \texttt{cache.go}：带最大尺寸的 \texttt{New}}]
+type Cache[K comparable, V any] struct {
+    ttl               time.Duration
+    mu                sync.Mutex
+    data              map[K]entryWithTimeout[V]
+    maxSize           int
+    chronologicalKeys []K
+}
+
+// New creates a new Cache with an initialised data.
+func New[K comparable, V any](
+    maxSize int, #1
+    ttl time.Duration) Cache[K, V] {
+    return Cache[K, V]{
+        ttl:               ttl,
+        data:              make(map[K]entryWithTimeout[V]),
+        maxSize:           maxSize,
+        chronologicalKeys: make([]K, 0, maxSize),
+    }
+}
+
+#1 Passes the maximum size of the cache as a parameter
+\end{gocode}
+
+\begin{codeannotations}
+\item 把缓存的最大尺寸作为参数传入
+\end{codeannotations}
+
+接下来我们注意到，向缓存添加条目不再像往映射里加一个键值对那么简单。现在，每当我们通过插入、删除或更新一个条目来改动映射时，都需要相应地向 \texttt{chronologicalKeys} 切片添加、移除或移动其中一个元素。
+
+为此，我们重构代码以避免逻辑重复。我们需要一个把键值对加入缓存的小函数，以及一个从中移除键的函数。两个函数都应负责同时更新映射和切片。先来写它们，这也是用上 Go 1.21 新增特性——\texttt{slices} 包——的好机会。这个包是切片常见操作的助手。这里我们将用它通过 \texttt{DeleteFunc} 函数从切片中删除所有具有特定值的条目，如下面的代码清单所示。该函数返回一个已丢弃所有在给定回调中返回 true 的条目的切片（它不就地修改原切片）。
+
+% SOURCE_PDF_PAGE: 044
+\begin{gocode}[title={代码清单 7.17 \texttt{cache.go}：取代映射调用的辅助函数}]
+// addKeyValue inserts a key and its value into the cache.
+func (c *Cache[K, V]) addKeyValue(key K, value V) {
+    c.data[key] = entryWithTimeout[V]{
+        value:   value,
+        expires: time.Now().Add(c.ttl),
+    }
+    c.chronologicalKeys = append(c.chronologicalKeys, key)
+}
+
+// deleteKeyValue removes a key and its associated value from the cache.
+func (c *Cache[K, V]) deleteKeyValue(key K) {
+    c.chronologicalKeys = slices.DeleteFunc(
+        c.chronologicalKeys,
+        func(k K) bool { return k == key })
+    delete(c.data, key)
+}
+\end{gocode}
+
+有了这些辅助函数，我们先更新 \texttt{Read()} 中的代码，如代码清单 7.18 所示。现在要做的只是更新条目到达 TTL 时移除它的方式，如代码清单 7.19 所示。
+
+\begin{gocode}[title={代码清单 7.18 \texttt{cache.go}：使用新辅助函数的 \texttt{Read}}]
+func (c *Cache[K, V]) Read(key K) (V, bool) {
+    ...
+    case e.expires.Before(time.Now()):
+        // The value has expired.
+        c.deleteKeyValue(key) #1
+        return zeroV, false
+    ...
+}
+
+#1 Refactors using the new helper function
+\end{gocode}
+
+\begin{codeannotations}
+\item 使用新的辅助函数完成重构
+\end{codeannotations}
+
+\begin{gocode}[title={代码清单 7.19 \texttt{cache.go}：使用新辅助函数的 \texttt{Delete}}]
+func (c *Cache[K, V]) Delete(key K) {
+    // Lock the deletion on the map
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.deleteKeyValue(key)
+}
+\end{gocode}
+
+最后，还必须更新 \texttt{Upsert()} 函数。这个稍微棘手一点，因为我们要实现的功能核心正在于此——我们想限制给定时刻缓存中存储的条目数。
+
+% SOURCE_PDF_PAGE: 045
+由于这个数字只会在 upsert 条目时增长，这个函数受影响最大是合情合理的。看看用户调用 \texttt{Upsert()} 时的各种可能：
+
+\begin{itemize}
+  \item 缓存中已有该键的值。这种情况下，我们要用新值和新 TTL 重置整个条目。还需要更新该键在时间顺序切片中的位置。做法是：删掉旧的键值对，再添加新的。
+  \item 缓存中没有该键的值。这种情况下，如果还没达到缓存的最大容量，那直接插入新的键值对即可。但如果已达最大容量，就需要为新条目腾出空间——这意味着丢弃存在得最久的那个条目。它就在我们键切片的开头。
+\end{itemize}
+
+既然明确了方法应有的行为，来实现它吧。所需代码见下一个代码清单。
+
+\begin{gocode}[title={代码清单 7.20 \texttt{cache.go}：使用新辅助函数的 \texttt{Upsert}}]
+func (c *Cache[K, V]) Upsert(key K, value V) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    _, alreadyPresent := c.data[key]
+    switch {
+    case alreadyPresent:
+        c.deleteKeyValue(key) #1
+    case len(c.data) == c.maxSize: #2
+        c.deleteKeyValue(c.chronologicalKeys[0])
+    }
+    c.addKeyValue(key, value) #3
+}
+
+#1 Discards any previous reference
+#2 There's no room left in our map.
+#3 Inserts the item
+\end{gocode}
+
+\begin{codeannotations}
+\item 丢弃任何先前的引用
+\item 我们的映射已经没有空位了
+\item 插入该条目
+\end{codeannotations}
+
+% SOURCE_PDF_PAGE: 046
+这里还有最后一次优化的机会。当我们需要替换一个已存在的条目、而缓存又正处于最大容量时，其实不必丢弃最老的条目——因为我们大可丢弃即将被替换的那个值，就足以腾出空间。Go 的 \texttt{switch/case} 语句有一个非常特别的行为，我们的实现正好用上了：当多个 case 都有效时，只有第一个符合条件的会被执行。这是一条大多数人都``知其然而不知其所以然''的隐性规则——它同样适用于 \texttt{default}：只要进入了某个 case 语句，就不会再执行 default 块。我们正是利用这个行为，只删除需要更新的那对键值。如果你确实需要进入多于一个 case 语句，可以考虑关键字 \texttt{fallthrough}。不过在那样的情况下，直接写一串 if 语句多半更清晰。
+
+\subsubsection*{测试缓存}
+
+我们的缓存不再是一个朴素的映射。我们通过条目列表加入了与``年龄''相关的逻辑，而这层新逻辑对最终用户是不可见的。因此，值得添加几个内部测试，确保我们每一步都做对了。
+
+最后，为这个新功能想一个面向最终用户的测试场景。我们可以通过向缓存添加超过其上限的条目来验证它，如代码清单 7.21 所示。我们还需要检查被更新的条目会更新其插入时间戳。为此，我们创建一个最大容量很小的缓存，把条目插满，upsert 最老的那个，然后插入一个新键。之后我们应该能取回被 upsert 的值，而最早加入缓存的第二个值应当再也取不到了。
+
+% SOURCE_PDF_PAGE: 047
+\begin{gocode}[title={代码清单 7.21 \texttt{cache\_test.go}：测试缓存的最大容量}]
+// TestCache_MaxSize tests the maximum capacity feature of a cache.
+// It checks that update items are properly requeued as "new" items,
+// and that we make room by removing the most ancient item for the new
+// ones.
+func TestCache_MaxSize(t *testing.T) {
+    t.Parallel() #1
+    // Give it a TTL long enough to survive this test
+    c := cache.New[int, int](3, time.Minute) #2
+    c.Upsert(1, 1)
+    c.Upsert(2, 2)
+    c.Upsert(3, 3)
+    got, found := c.Read(1)
+    assert.True(t, found)
+    assert.Equal(t, 1, got)
+    // Update 1, which will no longer make it the oldest
+    c.Upsert(1, 10)
+    // Adding a fourth element will discard the oldest - 2 in this case.
+    c.Upsert(4, 4)
+    // Trying to retrieve an element that should've been discarded by now.
+    got, found = c.Read(2)
+    assert.False(t, found)
+    assert.Equal(t, 0, got)
+}
+
+#1 Use this everywhere.
+#2 Short maxSize and long TTL for this test
+\end{gocode}
+
+\begin{codeannotations}
+\item 到处都请用它
+\item 这个测试用短 \texttt{maxSize} 和长 TTL
+\end{codeannotations}
+
+恭喜！我们已经写出了一个可以分享给其他开发者的泛型库。我们从一个满足需求的朴素实现起步，然后通过加入线程安全性强化了它。虽然本章介绍了不少理论，我们还是覆盖了缓存的实际需求。
+
+\section{常见错误}
+
+在《100 Go Mistakes and How to Avoid Them》（\url{https://mng.bz/QDjw}）一书中，Teiva Harsanyi 把 100 条经验中的 20 条都献给了并发与并行。我们强烈推荐这本书，以便更深入地学习 Go。
+
+% SOURCE_PDF_PAGE: 048
+在此期间，这里是我们的一份常见错误简明清单，请务必避开。
+
+\subsection{并发场景中何时使用通道}
+
+通道是 Go 中非常独特的存在，这意味着刚上手的开发者不会像掌握语言其他部分那样轻松地掌握它们。可以说，通道是这门语言中唯一一个需要学习曲线和一定练习的特性。
+
+因为通道起初容易用得磕磕绊绊，所以不需要时就别用它。虽然你的场景看起来像是这种闪亮特性的用武之地，还是三思为妙。只有当你需要与 goroutine 通信——进或出——时，才应当使用通道。
+
+\subsection{负载类型对并发的影响}
+
+面对一个并发场景，你首先需要判断负载的类型：不同类型对应的解法并不相同。负载可以是 CPU 密集、内存密集或 IO 密集的。运行归并排序算法典型地高度占用 CPU，而发起 REST API 调用则涉及大量输入/输出。
+
+举个例子，一个统计一堆文件行数的程序。这里的瓶颈是打开和关闭文件，因为它是 IO 密集的。能够并行工作的 goroutine 数量将取决于操作系统的限制，或者——如果文件在远端——你那台服务器的规则。你不会想因为过于频繁地敲打服务器而把系统搞崩或者被封禁。
+
+另一方面，如果你在单机上编码一段视频——典型的高 CPU 任务——% SOURCE_PDF_PAGE: 049
+那你就需要看看自己机器的架构了。\texttt{GOMAXPROCS} 环境变量是一个有趣的提示。它的默认值是你 CPU 的核心数。这个变量表示能够真正同时运行的 goroutine 的最大数量。任何多出来的 goroutine 都得与现有 goroutine 分享 CPU。太常见的情况是：并行化工作反而把事情弄得更糟，因为你早已触及 CPU 的最大负载。带缓冲通道的容量大小很适合拿来做性能基准测试——这些测试应当在与你的代码将来运行环境架构相似的机器上执行。
+
+\subsection{让你的 goroutine 善始善终}
+
+goroutine 启动容易，但别让它们泄漏。前面说过，程序应当在自己的所有子 goroutine 都结束后才退出。一旦你完成向 goroutine 的写入，就关闭它们，让读取者知道何时停止监听。
+
+多探索 \texttt{sync} 包，里面有让你省心的工具。不过其中大多数类型都不应当被复制，千万小心。
+
+\section*{小结}
+
+\begin{itemize}
+\item 缓存是一种键值存储设施。当获取与某个键关联的值代价高昂（时间上或资源数量上）、而接受先前取回或计算过的值也没有问题时，通常会使用缓存。
+\item 编写库时，应当始终自问这个库是否线程安全。答案要么是``是的，而且我知道为什么''，要么是``不，它不是''。没有中间地带——
+% SOURCE_PDF_PAGE: 050
+最坏的情形往往也是最危险的。
+\item Go 用，嗯，泛型（generics）来实现泛型化（genericity）。结构体、变量和函数都可以用泛型声明。
+\item 约束（constraint）是对泛型类型的要求。常见约束有 \texttt{any}（相当直白）；\texttt{comparable}，允许在两个值之间使用 \texttt{==}；或 \texttt{golang.org/x/exp/constraints.Ordered}，允许在两个值之间使用 \texttt{>}、\texttt{<}、\texttt{>=} 或 \texttt{<=}。
+\item 约束写在泛型实体名称之后的方括号里：
+
+\begin{gocode}[]
+type fieldWithName[T any] struct { value T, name string }
+
+var hashIndex[T myConstraint] map[uint]T
+func sortSlice[T constraints.Ordered](t []T) ([]T, error)
+\end{gocode}
+\item 当编译器能够推断应当使用什么类型时，函数声明中的约束可以省略：\par\texttt{sortSlice([]int\{1,4,3,2\})}。
+\item Go 使用 goroutine 实现并发。goroutine 与其他语言通常所说的线程（thread）类似，但又不是。线程存在于操作系统层面，而 goroutine 离你的硅片更远——它们存在于 Go 的运行时环境中。
+\item 在 Go 中，goroutine 用关键字 \texttt{go} 启动，\texttt{go do()} 会在新的 goroutine 中运行 \texttt{do} 函数。
+\item 通道用于在不同 goroutine 之间传递数据。把通道传给函数时，请在签名中明确：函数要么从通道读取，语法为 \texttt{func f(c <- chan string)}；要么向通道写入，语法为 \texttt{func f(c chan <- string)}。如果单个函数既要读又要写同一个通道，那多半存在设计缺陷。
+% SOURCE_PDF_PAGE: 051
+\item 需要同步 goroutine 时，常用两种类型：\texttt{sync.WaitGroup} 和 \texttt{errgroup.Group}。使用 \texttt{sync.WaitGroup} 时，先用将要执行的 goroutine 数量调用 \texttt{Add(n)}。每个 goroutine 负责调用 \texttt{Done}。通过调用 \texttt{Wait()} 实现同步。使用 \texttt{errgroup.Group} 时，先用 \texttt{SetLimit(n)} 设置并行 goroutine 的最大数量。通过调用 \texttt{Go(...)} 启动每个 goroutine。同步通过调用 \texttt{Wait()} 完成，如果某个 goroutine 返回了错误，它会返回该错误。
+\item 选择 \texttt{sync.WaitGroup} 还是 \texttt{errgroup.Group}，往往取决于是否需要检查至少一个 goroutine 中的错误。当错误不需要专门处理时，用 \texttt{sync.WaitGroup}；想处理错误时，用 \texttt{errgroup.Group}。
+\item 每当我们想保护某个变量免受并发写入——或读取——时，就使用互斥锁。在 Go 中，可以用 \texttt{sync.Mutex} 类型创建互斥锁变量：\texttt{var myMutex sync.Mutex}。互斥锁永远不应被导出；应在导出函数中使用它。互斥锁应当总是写在它所保护的变量或字段附近。
+\item 你可以对互斥锁调用 \texttt{mu.Lock()}，但我们强烈建议紧接着写上 \texttt{defer mu.Unlock()}。调试被锁死的互斥锁是一场噩梦。
+\item 在测试中使用 \texttt{t.Parallel()}，让框架知道该测试不会阻塞其他测试的执行。
+\item 测试时使用 \texttt{-race} 标志尝试检测数据竞争，但请记住：没有检测到数据竞争并不意味着没有数据竞争。
+\item 测试时使用 \texttt{-\--trimpath} 标志，只输出相对于模块根目录的路径。
+% SOURCE_PDF_PAGE: 052
+\item \texttt{switch/case} 语句只会执行第一个有效的 case；任何后续的 case 都会被忽略。
+\end{itemize}

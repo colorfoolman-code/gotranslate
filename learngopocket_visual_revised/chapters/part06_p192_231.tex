@@ -1,0 +1,1082 @@
+% SOURCE_PDF_PAGE: 192
+并添加一个测试来覆盖这个 bug。
+
+\begin{gocode}[title={代码清单 6.33 \texttt{amount.go}：修复 \texttt{NewAmount}}]
+// NewAmount 返回一个 Amount 类型的金额。
+func NewAmount(quantity Decimal, currency Currency) (Amount, error) {
+    switch {
+    case quantity.precision > currency.precision:
+        // 为避免转换 0.00001 分，现在就退出。
+        return Amount{}, ErrTooPrecise
+    case quantity.precision < currency.precision:
+        quantity.subunits *= pow10(currency.precision - quantity.precision)
+        quantity.precision = currency.precision
+    }
+    return Amount{quantity: quantity, currency: currency}, nil
+
+}
+\end{gocode}
+
+不过，这里还有一个小得不能再小的问题。我们的金额换算代码无法正常工作：无论在命令行中设置哪种货币，采用的汇率始终都是常量 2。我们需要真实的汇率。现在可以给银行打电话了。
+
+\section{调用银行}
+
+我们已经有了一个可用的解决方案，只剩下一个问题：用的并不是真实汇率。我们需要调用外部权威机构来获取汇率。这里，我们选择基于欧洲中央银行的 API 实现解决方案，因为它免费、不需要任何身份验证协议，而且一两年后仍然很可能以同一套 API 继续运行。我们可不想面对来自数据提供商的不可靠 API。
+
+获取数据和使用数据是两个可以分离的关注点；任何可以分离的逻辑都应该拆开，以便测试和演进。银行将成为我们程序的一个依赖项：程序要正常工作，就得依赖这个外部资源。无论使用哪种语言，在软件设计中，为多种设计目的使用控制反转（inversion of control，IoC）都是公认的最佳实践：
+
+\begin{itemize}
+% SOURCE_PDF_PAGE: 193
+\item 将任务的执行与实现解耦
+\item 让模块或包专注于它本来要完成的任务
+\item 让系统摆脱对其他系统如何完成工作的假设，转而依赖契约
+\item 在替换模块时防止副作用
+\end{itemize}
+
+更具体地说，\texttt{money} 包不应该知道汇率来自哪里，因为这超出了它的职责范围。另一个包会负责在需要时调用银行，处理银行特有的逻辑，并返回所需信息。因此，这个包就是由调用方（这里是我们的 \texttt{main} 函数）以接口形式的契约提供的依赖项。这样一来，由调用方决定哪种数据源最合适，而金额换算逻辑无须改动。
+
+举个例子，假设你在编写这个工具时，另一个团队的某个人正在编写银行服务。你还无法访问该服务，但可以创建一个 \texttt{Convert} 能理解的依赖项，让它只返回硬编码值。等服务最终就绪时，只需要把这个临时替代品换成对新 API 的调用。其他所有部分都已经测试过，并且运行顺畅。在开发期间用桩（stub）替换依赖项，只是这种模式的一种用途。另一种用途可能是增加缓存：把 API 调用替换成一个类似的函数，让它先检查内存中是否已经有这个值，从而避免网络调用。
+
+在我们的例子中，依赖项的职责是获取两种货币之间的汇率。想象一下，一个跑腿员骑车去几个街区外的银行，带着信息返回，而负责计算的职员一直在
+
+% SOURCE_PDF_PAGE: 194
+等待。尽管 API 会返回它所知道的完整货币列表，以及每 1 欧元对应的汇率，但这个工具并不需要完整列表，只需要目标货币和源货币。API 的细节应该留在依赖项的包中。
+
+\subsection{依赖注入：理论}
+
+在 Go 中提供依赖项有两种方式：一种更偏向面向对象，另一种看起来像函数式编程。
+
+\subsubsection*{对象依赖项}
+
+第一种方案要求调用方手头有一个变量，其类型实现了某个接口。如果你了解 Java 系列等面向对象语言，就会熟悉这种做法。
+
+在这个版本中，如代码清单 6.34 所示，我们创建一个带有 \texttt{FetchRates} 方法的结构体，再把这个类型的变量传给 \texttt{Convert}。\texttt{Convert} 接受任何实现了预期接口的变量。在这种实现中，\texttt{main} 函数负责创建实现该接口的变量。
+
+% SOURCE_PDF_PAGE: 195
+\begin{gocode}[title={代码清单 6.34 通过接口进行依赖注入}]
+type ratesFetcher interface {
+    FetchRates(from, to Currency) (ExchangeRate, error) #1
+}
+
+func Convert(..., rates ratesFetcher) { #2
+    ...
+    rate, err := rates.FetchRates(from, to) #2
+    ...
+}
+
+...
+
+func main() {
+    ratesRepo := newRatesRepository() #3
+    money.Convert(..., ratesRepo)
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 依赖项对外提供的方法签名
+\item \texttt{Convert} 接受接口作为参数，并调用它
+\item 创建变量并将其传给 \texttt{Convert}
+\end{codeannotations}
+
+\subsubsection*{函数依赖项}
+
+第二种方案如代码清单 6.35 所示，更为冗长，但同样可行，而且在某些情况下可能更受青睐。\texttt{Convert} 函数的最后一个参数是函数定义，而不是实现接口的对象。其余部分相对类似。
+
+\begin{gocode}[title={代码清单 6.35 通过函数进行依赖注入}]
+func Convert(...,
+    rates func(from Currency, #1
+        to Currency) (ExchangeRate, error),   #1
+) (Amount, error) {
+    ...
+    rate, err := rates(from, to) #2
+    ...
+}
+
+func main() {
+    ratesRepo := newRatesRepository() #3
+    money.Convert(..., ratesRepo.FetchRates) #4
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 最后一个参数是一个函数
+\item 以另一种方式调用该参数
+\item 类似的实例化过程
+\item 传入相关函数，但不调用它
+\end{codeannotations}
+
+% SOURCE_PDF_PAGE: 196
+\texttt{main} 函数直接传入了 \texttt{FetchRates} 方法，\texttt{Convert} 将调用这个方法。你甚至可以通过声明一个类型来命名函数签名：
+
+\begin{gocode}[]
+type getExchangeRatesFunc func(from, to Currency) (ExchangeRate, error)
+
+func Convert(..., rates getExchangeRatesFunc) (Amount, error) {
+    ...
+}
+\end{gocode}
+
+或者，调用方可以自由地即时创建任何函数，并在需要时依赖外层作用域中的变量。
+
+\begin{gocode}[title={代码清单 6.36 通过局部函数进行依赖注入}]
+func main() {
+    config := ...
+
+    fetcher := func(from Currency, #1
+        to Currency) (ExchangeRate, error){   #1
+        return config.MockRate, nil #2
+    }
+
+    money.Convert(..., fetcher)
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 如果需要访问局部变量，就声明一个匿名函数
+\item 在这里可以访问 \texttt{config}
+\end{codeannotations}
+
+可以看到，函数依赖项这种方案对初学者来说不那么直观（为什么函数会是一个参数？），但也给调用方留下了更多实现依赖项的余地。这个方案不限定函数的名称，也不要求该函数必须是对象的方法。此外，在测试中模拟一个函数也稍微容易一些。函数依赖项方案通常给实现留下更多自由，这也意味着更容易犯错。
+
+例如，一个对象上可以有两个不同的方法，再根据上下文选择要使用的那个。设想一个 API：未登录时可以免费获得每日汇率，登录后则可获得每分钟更新的汇率。
+
+% SOURCE_PDF_PAGE: 197
+这两个函数签名相同、名称不同，都是同一个对象的方法；该对象包含对两次调用都有效的配置。下面的代码清单展示了如何根据配置项覆盖默认函数。
+
+\begin{gocode}[title={代码清单 6.37 根据环境使用不同的获取器}]
+func main() {
+    ratesRepo := newRatesRepository()
+    apiKey := getAPIKey() #1
+
+    fetcher := ratesRepo.FreeRates #2
+    if apiKey != "" {
+        fetcher = ratesRepo.WithAPIKey(apiKey). #3
+            LoggedInRates #3
+    }
+
+    money.Convert(..., fetcher)
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 这里可能返回空字符串
+\item 使用默认值
+\item 用另一个函数覆盖原函数
+\end{codeannotations}
+
+在本章余下部分，我们选择用刚才介绍的第一种方法，也就是接口依赖项，来实现汇率获取器，主要因为它更容易阅读、解释和理解。
+
+\subsection{ECB 包}
+
+我们来创建一个新包，负责调用银行的 API。没必要硬把它说得很通用：这个包只知道如何调用欧洲中央银行的这一个 API，因此就叫它 \texttt{ecbank} 吧。正如我们看到的，新包应该导出一个带有方法的结构体，或许还要提供一种构造它的方式。
+
+再来稍微谈谈这个方法的签名。我们假设它接收两种货币，并返回汇率或错误。它不应该返回 \texttt{Decimal}，因为 \texttt{Decimal} 表示的是
+
+% SOURCE_PDF_PAGE: 198
+金额，并受到一个相关约束：不存在比“分”（或 agora、{\fontfamily{lmr}\selectfont qəpik}）更小的金额。它应该返回汇率；碰巧，我们已经有了相应的业务类型。
+
+这个结构体该叫什么？在现实世界中，要获得信息，你的跑腿员会走到银行去询问。在我们的代码中，这个对象做的就是银行所做的事，所以大可以把它叫作银行。
+
+\begin{gocode}[title={代码清单 6.38 \texttt{ecb.go}：\texttt{Client} 结构体及其主要方法}]
+// Client 可以调用银行来取得汇率。
+type Client struct {
+}
+
+// FetchExchangeRate 获取当日的 ExchangeRate 并返回。
+func (c client) FetchExchangeRate(source, target money.Currency,
+) (money.ExchangeRate, error) {#1
+    return money.ExchangeRate{}, nil
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 需要导入 \texttt{money} 包
+\end{codeannotations}
+
+可以说，我们本可以构建完全独立、完全不依赖 \texttt{money} 类型的包。这里的架构决策却是让一切都以独立的 \texttt{money} 包为基础。其他包可以依赖它，但它不能依赖任何其他包。在 Go 中，如果包 A 依赖包 B，而包 B 又依赖包 A，编译器会当场阻止你：不允许导入环，也就是循环依赖。循环依赖是编译器版本的“先有鸡还是先有蛋”难题。即使某些语言可能有办法处理带循环依赖的构建，Go 也从一开始就禁止它。在我们看来，这让架构更加整洁。
+
+这个 \texttt{FetchExchangeRate} 方法将构建 API 请求、发出调用、检查调用是否成功；如果成功，就读取响应，并返回给定货币之间的汇率。整个逻辑都围绕 HTTP 调用组织起来。来看看 Go 原生如何处理这些步骤。
+
+% SOURCE_PDF_PAGE: 199
+\subsection{HTTP 调用：简易版本}
+
+欧洲中央银行公开了一个列出每日汇率的端点。可以先在你惯用的终端中试着调用这个 API，看看它是什么样子：
+
+\begin{shellcode}[]
+> curl "http://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
+\end{shellcode}
+
+可以看到，它返回一大段 XML 响应。我们必须解析它并找出想要的值，不过首先，先在代码中取得这条消息！
+
+Go 的 \texttt{net/http} 包为 HTTP(S) 调用提供服务端和客户端实用工具。它使用一个名为 \texttt{Client} 的结构体来管理通过 HTTP 和 HTTPS 进行通信的内部事务。\texttt{Client} 是线程安全的对象，负责保存配置、管理传输控制协议（TCP）状态、处理 cookie，等等。该包的一些函数不要求客户端（例如简单的 \texttt{Get} 函数），而是使用一个默认客户端：
+
+\begin{gocode}[]
+http.Get("http://example.com/")
+\end{gocode}
+
+我们先从这个简单的调用开始。设计关乎你允许什么、阻止什么。
+
+% SOURCE_PDF_PAGE: 200
+\begin{infobox}{调用外部资源}
+凡是调用不属于你自己代码的东西，都应该极其小心、谨慎地处理。凡是由第三方应用、库或服务生成或返回的内容，在明确验证之前都应该视为不可信。抱最好的希望，做最坏的准备。现在正好可以发挥创意：调用别人的代码时，可能发生的最糟糕情况是什么？在最坏的情况下，对库的调用甚至可能导致 \texttt{panic}。
+
+对于网络调用，我们可能遇到网络错误（例如无法解析资源的 URL），也可能遇到服务器相关问题（超时、不可用）。永远不要假定外部服务总会按预期响应。
+
+作为开发者，你有责任决定代码要处理哪些问题、不处理哪些问题。请在文档中明确说明涵盖什么、不涵盖什么。例如，如果决定不为请求设置超时，就等于默许这次调用可能永远占着连接，最终让应用程序冻结。
+\end{infobox}
+
+\subsubsection*{在哪里声明路径}
+
+我们把资源的路径声明成了常量。目前这样做没问题，因为如果 API 发生变化，维护者可以只在一个地方修改它（设想路径中的版本发生变化，虽然这里并不存在这种情况）。理想情况下，客户端包应该知道相对路径，而调用方应该把要调用的 URL 作为配置告诉这个包，
+
+% SOURCE_PDF_PAGE: 201
+从而为测试环境留出空间。这样的配置超出了本章范围，不过不妨自行构思一个更整洁的解决方案。
+
+可以紧挨着函数之前声明常量；也可以像下面的代码清单那样，在 \texttt{FetchExchangeRates} 函数内部声明它，从而缩小其可见性，防止包内的其他任何东西访问这个常量。无论常量出现在哪里，编译器仍会用它的值替换它。
+
+\begin{gocode}[title={代码清单 6.39 \texttt{ecb.go}：\texttt{FetchExchangeRates} 的开头几行}]
+const path =
+    "http://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
+
+resp, err := http.Get(euroxrefURL)
+if err != nil {
+    return money.ExchangeRate{}, fmt.Errorf("%w: %s", #1
+        ErrServerSide, err.Error())
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 返回错误
+\end{codeannotations}
+
+请注意，在生产代码中，继续使用 \texttt{http.Get} 所用的默认客户端被认为是个坏主意。稍后会在 6.2.5 节进一步学习客户端。
+
+\subsubsection*{再谈错误}
+
+请牢记，调用方——也就是 \texttt{main} 函数——不应被迫处理实现细节，因此我们不应该直接把 \texttt{net/http} 包的错误传播给调用方。如果调用方想检查返回的是哪种错误，它也得依赖 \texttt{net/http} 包。这样一来，如果我们改变实现并使用另一种协议，就会破坏调用方的代码，这可不妙。
+
+我们会改为声明与 \texttt{money} 包中的错误相同的四行，不过这些错误将专属于我们的 \texttt{ecbank}
+
+% SOURCE_PDF_PAGE: 202
+包。调用方将能够用 \texttt{errors.Is()} 检查错误值，并知道它的含义。
+
+在代码清单 6.40 中，我们其实不需要导出所定义的错误类型，因为这不会给调用方带来任何价值。我们只需要导出哨兵错误，以便调用方检查错误。
+
+\begin{gocode}[title={代码清单 6.40 \texttt{errors.go}：可能的错误}]
+// ecbankError 定义一个哨兵错误。
+type ecbankError string
+
+// ecbankError 实现 error 接口。
+func (e ecbankError) Error() string {
+    return string(e)
+}
+\end{gocode}
+
+接着，在靠近这些错误可能返回的位置声明常量和导出的错误。随着代码增加，这个列表还会扩充：
+
+\begin{gocode}[]
+const (
+    ErrCallingServer = ecbankError("error calling server")
+)
+\end{gocode}
+
+\texttt{http.Get} 函数返回一个 \texttt{http.Response}。\texttt{Response} 导出的字段之一是 \texttt{Body}，它实现了 \texttt{io.ReadCloser}。甚至不必查看文档，从名字也能看出它提供了 \texttt{Read} 和 \texttt{Close} 方法。无论做什么，都别忘了关闭它，否则会制造各种内存泄漏。为了尽快把这件事从脑海里清出去，Go 提供了 \texttt{defer} 关键字：放在 \texttt{defer} 后面的操作会在任何 \texttt{return} 之前执行。这意味着你可以使用响应、读取它、尽情处理它，并在必要时返回错误；而无论代码走过哪个分支，返回前都会关闭响应体：
+
+\begin{gocode}[]
+defer resp.Body.Close()
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 203
+现在可以看看我们从银行收到了什么。
+
+\subsection{解析响应}
+
+在解析响应体之前，我们首先要检查状态码。状态码描述远程服务器如何处理我们的查询。如果已经知道调用未成功，就没有必要读取响应。
+
+\subsubsection*{检查状态}
+
+超文本传输协议标准定义了一长串可能的状态码，分为五类：
+
+\begin{itemize}
+\item \texttt{1xx}（100--199），信息响应：请求已收到，服务器继续处理。
+\item \texttt{2xx}（200--299），成功：请求已成功收到、理解并接受。
+\item \texttt{3xx}（300--399），重定向：需要采取进一步操作才能完成请求。
+\item \texttt{4xx}（400--499），客户端错误：请求语法有误，或请求无法得到满足。
+\item \texttt{5xx}（500--599），服务器错误：服务器未能满足一个看起来有效的请求。
+\end{itemize}
+
+要继续下去，我们需要一个以 2 开头的状态码；更具体地说，我们知道自己想要的是 200。但也要像代码清单 6.41 所示的那样检查 4xx 和 5xx：前一种情况是我们的查询出了错，后一种情况则不是我们的错。
+
+因为目前真正关心的只是状态码的类别，所以遇到问题时，可以用除法来
+
+% SOURCE_PDF_PAGE: 204
+只检查第一位数字。专门写一个函数只做这次除法，完全没有问题。
+
+\begin{gocode}[title={代码清单 6.41 \texttt{ecb.go}：处理 HTTP 状态码的函数}]
+const (
+    clientErrorClass = 4
+    serverErrorClass = 5
+)
+
+// checkStatusCode 根据返回的状态码
+// 返回不同的错误。
+func checkStatusCode(statusCode int) error {
+    switch {
+    case statusCode == http.StatusOK: #1
+        return nil
+    case httpStatusClass(statusCode) == clientErrorClass: #2
+        return fmt.Errorf("%w: %d", ErrClientSide, statusCode)
+    case httpStatusClass(statusCode) == serverErrorClass: #3
+        return fmt.Errorf("%w: %d", ErrServerSide, statusCode)
+    default: #4
+        return fmt.Errorf("%w: %d", ErrUnknownStatusCode, statusCode)
+    }
+}
+
+// httpStatusClass 返回 HTTP 状态码的类别。
+func httpStatusClass(statusCode int) int {
+    const httpErrorClassSize = 100
+    return statusCode / httpErrorClassSize
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 一切正常
+\item 4XX 错误
+\item 5XX 错误
+\item 其他任何状态码
+\end{codeannotations}
+
+\texttt{FetchExchangeRate} 函数可以调用这个检查函数，并直接转发错误而不加包装：我们已经确保自己知道会返回哪种错误。调用同一个包中的函数时，要不要包装错误由你负责决定。导出函数返回的错误都应该有文档说明，并且属于已知类型，但你可以选择在哪里创建它们。
+
+现在我们知道 HTTP 调用没有引发错误，也可以确定服务器返回了有效响应。接下来看看这个响应中包含的 XML。
+
+% SOURCE_PDF_PAGE: 205
+\subsubsection*{解析 XML}
+
+为了解析 XML，我们将使用 Go 的 \texttt{encoding/xml} 包。正如我们在第 3 章看到的，Go 标准库的各个包支持一份相当丰富的编码格式列表，其中包括 JSON、CSV 和 Base64。
+
+\subsubsection*{解码和编码 XML（或 JSON）}
+
+\texttt{encoding/json} 和 \texttt{encoding/xml} 包都提供了两种解码消息的方式。两者都提供了一个 \texttt{Unmarshal} 函数，可以把字节切片转换成对象。两者还都允许通过名为 \texttt{NewDecoder} 的函数创建 \texttt{Decoder}。这个构造函数接收一个 \texttt{io.Reader} 参数，后续对 \texttt{Decoder} 的调用会从中读取数据，并把数据转换成所需对象。该如何选择很简单。如果你有一个 \texttt{io.Reader}，就使用 \texttt{Decoder}；如果你有一个 \texttt{[]byte}，那么使用 \texttt{Unmarshal} 或 \texttt{NewDecoder} 都可以。
+
+同样，编码 JSON 或 XML 时，如果能使用 \texttt{io.Writer}，就使用 \texttt{Encoder}；否则使用 \texttt{Marshal}。下面用三个例子展示如何解析一个字节切片。例 1 把数据表示成字节切片：
+
+\begin{gocode}[]
+type person struct {
+    Age int     `json:"age"` # 必须导出才能被解码
+    Name string `json:"name"`
+}
+data := []byte(`{"age": 23, "name": "Yoko"}`)
+\end{gocode}
+
+例 2 使用 \texttt{json.Unmarshal}：
+
+\begin{gocode}[]
+p := person{}
+err := json.Unmarshal(data, &p) // 这需要完整的数据切片
+if err != nil {
+    panic(err)
+}
+\end{gocode}
+
+例 3 使用 \texttt{json.NewDecoder}：
+
+% SOURCE_PDF_PAGE: 206
+\begin{gocode}[]
+p := person{}
+dec := json.NewDecoder(bytes.NewReader(data)) // 或使用 io.Reader
+err := dec.Decode(&p)
+if err != nil {
+    panic(err)
+}
+\end{gocode}
+
+\texttt{response.Body} 的类型是 \texttt{io.Reader}——是不是很方便！因此，在这里使用 \texttt{Decoder} 再合理不过了。随后，我们就可以调用 \texttt{Decode}，把数据解码到正确的结构体中。为此，先定义一个类型（下一段会介绍），再把该类型变量的指针传给解码器。声明这个变量后，它便会存在于内存中；解码器会访问它的各个字段，用从 \texttt{Reader} 中找到的内容填充这些字段。向 \texttt{Decoder} 提供指针至关重要（更详细的解释见附录 E）：
+
+\begin{gocode}[]
+decoder := xml.NewDecoder(resp.Body)
+
+var xrefMessage theRightStructure #1
+err := decoder.Decode(&xrefMessage)
+\end{gocode}
+
+\begin{codeannotations}
+\item 解码所用的结构体
+\end{codeannotations}
+
+这个“正确”的结构体究竟是什么？它就是与响应格式相匹配、并使用标签指定每个 XML 字段该如何映射到 Go 字段的结构体。
+
+为了定义这个结构体，先来看一下响应。由于欧洲中央银行负责欧元，一切都以欧元为基准。
+
+% SOURCE_PDF_PAGE: 207
+\begin{gocode}[title={代码清单 6.42 API 返回的 XML 响应}]
+<?xml version="1.0" encoding="UTF-8"?>
+<gesmes:Envelope #1
+    xmlns:gesmes="http://www.gesmes.org/xml/2002-08-01"
+    xmlns="http://www.ecb.int/vocabulary/2002-08-01/eurofxref">
+    <gesmes:subject>Reference rates</gesmes:subject>
+    <gesmes:Sender>
+        <gesmes:name>European Central Bank</gesmes:name>
+    </gesmes:Sender>
+    <Cube>
+        <Cube time='2023-02-20'> #2
+            <Cube currency='USD' rate='1.0674'/> #3
+            <Cube currency='JPY' rate='143.09'/>
+            <Cube currency='BGN' rate='1.9558'/>
+            <Cube currency='CZK' rate='23.693'/>
+            <Cube currency='DKK' rate='7.4461'/>
+            [...]
+        </Cube>
+    </Cube>
+</gesmes:Envelope>
+\end{gocode}
+
+\begin{codeannotations}
+\item \texttt{Envelope}
+\item 包含某一日期的汇率列表
+\item 我们想提取的值
+\end{codeannotations}
+
+我们可以保留响应的名称，创建一个叫作 \texttt{envelope} 的结构体。不过，XML 节点名 \texttt{Cube} 不够明确，所以我们将使用 \texttt{currencyRates}。
+
+解析对象 \texttt{envelope} 和 \texttt{currencyRate} 本身不需要导出，但它们的字段必须能被 \texttt{encoding/xml} 包访问，因此这些字段必须导出。
+
+Go 在结构体字段声明行的末尾定义标签，以此告诉 \nolinkurl{encoding/*} 包（\nolinkurl{encoding/csv}、\nolinkurl{encoding/json}、\nolinkurl{encoding/xml}、\nolinkurl{encoding/gob}）如何编码或解码每个字段。标签始终声明在反引号之间，由标签名、冒号和双引号中的值组成。如果同一字段需要多个标签，就在反引号内用逗号分隔，例如：
+
+% SOURCE_PDF_PAGE: 208
+\begin{gocode}[]
+type Movie struct {
+    Title       string `xml:"Title",json:"title"`#1
+    ReleaseYear int    `json:"year"` #2
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 让两种格式都能访问标题
+\item XML 使用方无法访问发行年份。
+\end{codeannotations}
+
+要获取 XML 节点的属性，只需告诉解码器查找属性即可。Go 还可以使用 \texttt{>} 语法把节点“去嵌套”。这里，我们不想获取中间 \texttt{Cube} 节点的 \texttt{time} 属性，只想获取其中的 \texttt{Cube} 节点。我们用 \texttt{Cube>Cube>Cube} 从根“跳”到包含所需数据的层级；其中第一个是 \texttt{Envelope} 的子节点，最后一个则包含我们的汇率。
+
+\begin{gocode}[title={代码清单 6.43 \texttt{envelope.go}：用于 XML 解码的结构体}]
+type envelope struct {
+    Rates []currencyRate `xml:"Cube>Cube>Cube"` #1
+}
+
+type currencyRate struct {
+    Currency string             `xml:"currency,attr"` #2
+    Rate     money.ExchangeRate `xml:"rate,attr"`
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 使用 \texttt{>} 符号更快地深入 XML 树
+\item 从属性解码到我们想要的类型
+\end{codeannotations}
+
+有几个字段并非我们所需，例如时间和主题。声明标签时应尽量精简，只获取需要的内容。
+
+\subsubsection*{计算汇率}
+
+现在，我们需要计算源货币与目标货币之间的汇率。请记住，欧洲中央银行给出的汇率，全都是对“1 欧元能换到多少 X 货币？”这个问题的回答。这意味着欧元可以用作一种“过渡”货币；或者说得更准确些，从一种货币换算到另一种货币的汇率
+
+% SOURCE_PDF_PAGE: 209
+只需在欧元世界中转一跳就能算出。根据传递性，加元（CAD）兑南非兰特（ZAR）的汇率，等于加元兑欧元的汇率乘以欧元兑南非兰特的汇率。我们只能取得欧元兑加元的汇率，但在这个项目中，我们会假定加元兑欧元的汇率就是欧元兑加元汇率的倒数。
+
+怎样从解码后的列表中取出所需的两个汇率呢？一种做法是遍历列表并找出它们。两个都找到后就需要立即停止。如果到列表末尾仍未找到，就可以返回错误。这样的实现能用，但写出来的代码并不最容易阅读。
+
+考虑到我们的场景对性能要求极低，我们更愿意优化可维护性，而不是内存占用，因此采用另一种方案：把所有解码后的货币及其汇率都存进映射，并把欧元加进去（欧洲中央银行的载荷中没有欧元）。这样，需要时就能从映射中取得感兴趣的值。注册这些值的时间和内存复杂度都是 O(N)，因为我们会把列表遍历一遍；而在我们的场景中，从映射取值的时间复杂度是 O(1)。与只存储两个值相比，它会多占一点内存，但全世界并没有数百万种货币——即使把整个人类历史都算上也没有。我们不会有问题。
+
+映射的键是货币，值是汇率。请注意，为了提高可读性，我们本可以给货币代码起一个不同于 \texttt{string} 的类型名；但既然 \texttt{money} 包认为没必要导出这个类型，我们也照做，继续使用简单的 \texttt{string}，如代码清单 6.44 所示。
+
+% SOURCE_PDF_PAGE: 210
+我们可以编写一个函数，以 \texttt{envelope} 为输入并返回映射；也可以编写一个方法。这里两种实现都很清楚。使用方法暗示我们可能会修改该方法所属的对象，而使用函数则不应如此。这更像一种约定，而不是真正的限制。
+
+\begin{gocode}[title={代码清单 6.44 \texttt{envelope.go}：映射汇率以便查找}]
+const baseCurrencyCode = "EUR"
+
+// exchangeRates 构建包含所有受支持汇率的映射。
+func (e envelope) exchangeRates() map[string]money.ExchangeRate {
+    rates := make(map[string]money.ExchangeRate,
+        len(e.Rates)+1) #1
+
+    for _, c := range e.Rates {
+        rates[c.Currency] = c.Rate
+    }
+
+    rates[baseCurrencyCode] = 1. #2
+
+    return rates
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 映射大小等于列表长度，再为欧元留一个位置。
+\item 添加 EUR 兑 EUR 的汇率
+\end{codeannotations}
+
+有了这些，计算所需汇率就很容易了。代码见下面的清单。
+
+% SOURCE_PDF_PAGE: 211
+\begin{gocode}[title={代码清单 6.45 \texttt{envelope.go}：计算汇率}]
+// exchangeRate 从 Envelope 的内容中读取汇率。
+func (e envelope) exchangeRate(
+    source, target string) (money.ExchangeRate, error) {
+    if source == target {
+        return 1., nil #1
+    }
+
+    rates := e.mappedChangeRates()
+
+    sourceFactor, sourceFound := rates[source] #2
+    if !sourceFound {
+        return 0, fmt.Errorf("failed to find the source currency %s",
+            source) #3
+    }
+
+    targetFactor, targetFound := rates[target] #4
+    if !targetFound {
+        return 0, fmt.Errorf("failed to find target currency %s", target)
+    }
+
+    return targetFactor / sourceFactor, nil #5
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 源货币和目标货币相同时不需要汇率
+\item 查找源货币
+\item 这些错误会在调用方函数中包装。
+\item 查找目标货币
+\item 返回汇率
+\end{codeannotations}
+
+在货币参数中，我们使用了简写语法：多个参数具有相同类型时，只需在列表末尾声明一次类型。比较下面两种写法：
+
+\begin{gocode}[]
+source, target string
+
+source string, target string
+\end{gocode}
+
+别忘了测试！这一项不需要我们帮忙。有时可以不为某些中间层编写单元测试，但这种计算应该立刻拉响测试警报和警笛。以后回来修改实现细节时，可能会不小心把这个除法顺序颠倒；等你反应过来，FBI 已经因为非法货币兑换找上门来了。可谁会把除法顺序颠倒呢？结果可能会让你大吃一惊。完成后，就该编写从
+
+% SOURCE_PDF_PAGE: 212
+响应体读取数据并返回汇率的函数了。
+
+\begin{gocode}[title={代码清单 6.46 \texttt{envelope.go}：读取汇率}]
+func readRateFromResponse(
+    source, target string, respBody io.Reader) (money.ExchangeRate, error) {
+    // 读取响应
+    decoder := xml.NewDecoder(respBody)
+
+    var ecbMessage envelope
+    err := decoder.Decode(&ecbMessage)
+    if err != nil {
+        return 0., fmt.Errorf("%w: %s", ErrUnexpectedFormat, err)
+    }
+
+    rate, err := ecbMessage.exchangeRate(source, target)
+    if err != nil {
+        return 0., fmt.Errorf("%w: %s", ErrChangeRateNotFound, err)
+    }
+    return rate, nil
+}
+\end{gocode}
+
+可以看到，我们把参数的范围限制为字符串和 \texttt{io.Reader}。尽管把 \texttt{main} 函数手中实际拥有的完整 \texttt{money.Currency} 和 \texttt{*http.Response} 传进来似乎很诱人，但这会让测试更困难，还会无缘无故阻碍未来的修改。
+
+这个包的导出方法最后要做的，就是调用刚写好的函数：
+
+\begin{gocode}[]
+readRateFromResponse(source.ISOCode(), target.ISOCode(), resp.Body)
+\end{gocode}
+
+可是，\texttt{source} 和 \texttt{target} 的 ISO 代码没有导出。它们可以通过 \texttt{String()} 方法取得，因此我们很容易想用它；但怎么知道这个 \texttt{Stringer} 永远都会返回 ISO 代码呢？例如，若有人想让 CLI 更美观，打印完整的英文名称，只需修改 \texttt{Stringer}——砰——什么都不能用了。
+
+我们可以改为在 \texttt{money} 包中添加一个 \texttt{ISOCode} 方法：它提供 ISO 代码，并且其行为不会为了
+
+% SOURCE_PDF_PAGE: 213
+展示效果而改变。最终的导出函数应该类似下面这样。
+
+\begin{gocode}[title={代码清单 6.47 \texttt{ecb.go}：获取汇率}]
+// FetchExchangeRate 获取当天的 ExchangeRate 并返回。
+func (ecb EuroCentralBank) FetchExchangeRate(
+    source, target money.Currency) (money.ExchangeRate, error) {
+    const path =
+        "http://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
+
+    resp, err := http.Get(path)
+    if err != nil {
+        return 0., fmt.Errorf("%w: %s", ErrServerSide, err.Error())
+    }
+
+    // 别忘了关闭响应体
+    defer resp.Body.Close()
+
+    if err = checkStatusCode(resp.StatusCode); err != nil {
+        return 0., err
+    }
+
+    rate, err := readRateFromResponse(
+        source.Code(), target.Code(), resp.Body)
+    if err != nil {
+        return 0., err
+    }
+
+    return rate, nil
+}
+\end{gocode}
+
+\subsubsection*{围绕 HTTP 调用进行测试}
+
+这一部分对我们的工具相当重要，那么该如何测试呢？代码明确调用了一个硬编码 URL。我们真的想在每次运行单元测试时都发起 HTTP 调用吗？如果远程服务器没有响应怎么办？如果网络断了怎么办？单元测试应该在本地运行，而且要快。我们当然不想在单元测试期间进行真实调用。
+
+\texttt{httptest} 包提供了为测试搭建小型 HTTP 服务器的基础设施。它可以在测试需要的短短几毫秒内运行一个极小的模拟 HTTP 服务器。然后，只需把服务器的 URL 传给调用方，
+
+% SOURCE_PDF_PAGE: 214
+再定义期望得到的响应即可。发送到该服务器 URL 的任何查询都会返回一条特定消息，正如我们将在 6.2.5 节看到的那样。
+
+不过，等等，我们代码中的 URL 是常量。正如前面提过的，在生产环境中，我们会希望它可以配置，并让它成为 \texttt{Client} 对象的一部分。来这样做吧。给对象添加一个 \texttt{path} 字段，如代码清单 6.48 所示。理想情况下，应该由一个 \texttt{New} 函数接收此路径参数并创建对象，不过我们可以走一条小捷径。
+
+\begin{gocode}[title={代码清单 6.48 \texttt{ecb.go}：使用可模拟的路径获取汇率}]
+// Client 可以调用银行以获取汇率。
+type Client struct {
+    url string #1
+}
+
+// FetchExchangeRate 获取今天的 ExchangeRate 并返回。
+func (c Client) FetchExchangeRate(
+    source, target money.Currency) (money.ExchangeRate, error) {
+    const euroxrefURL =
+        "http://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
+
+    if c.url == "" { #2
+        c.url = euroxrefURL
+    }
+
+    resp, err := http.Get(c.url)
+// ...
+\end{gocode}
+
+\begin{codeannotations}
+\item 添加一个字段
+\item 如果字段为空，就使用常量
+\end{codeannotations}
+
+如果手动测试，它的工作方式应该与原来完全相同。唯一的区别是，现在可以把测试自动化了。
+
+在测试中，首先使用 \texttt{httptest} 提供的设施创建服务器。\texttt{NewServer} 接收一个 \texttt{HandlerFunc} 类型的函数；它就是 Go 的标准 HTTP 处理器，定义在真正的 \texttt{http} 包里，而不是 \texttt{httptest} 包里：
+
+% SOURCE_PDF_PAGE: 215
+\begin{gocode}[]
+ts := httptest.NewServer(
+    http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintln(w, "...")
+}))
+defer ts.Close() #1
+\end{gocode}
+
+\begin{codeannotations}
+\item 别忘了停止服务器。
+\end{codeannotations}
+
+这里，参数是一个匿名函数，我们把它转换为 \texttt{HandlerFunc} 类型。每次向该服务器的 URL 发送查询，服务器都只会把预期响应写入 \texttt{ResponseWriter}。随后，就能把这个服务器的 URL 传给 \texttt{EuroCentralBank}；到这里，测试的其余部分对你来说已经很容易了。
+
+\begin{gocode}[title={代码清单 6.49 \texttt{ecb\_internal\_test.go}：测试 Fetch 函数}]
+func TestEuroCentralBank_FetchExchangeRate_Success(t *testing.T) {
+    ts := httptest.NewServer(
+        http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintln(w, `<?xml...>`)
+    }))
+    defer ts.Close() #1
+
+      ecb := Client{
+          path: ts.URL, #2
+      }
+
+      got, err := c.FetchExchangeRate(mustParseCurrency(t, "USD"),
+          mustParseCurrency(t, "RON")) #3
+
+...
+\end{gocode}
+
+\begin{codeannotations}
+\item 创建服务器，并延迟执行服务器的关闭
+\item 给测试对象设置路径
+\item 把 \texttt{mustParseCurrency} 复制到这里并复用
+\end{codeannotations}
+
+你可能会好奇，我们为什么要在两个地方复制 \texttt{mustParseCurrency}。很多时候，少量复制好过一个庞大的依赖。这样，两边就能各自独立演进。若只保留一个，就必须在非测试文件中将它导出。我们就到这里，复制这寥寥几行吧。
+
+当然，这里给出的测试示例只是一个测试用例。别忘了添加更多用例，其中也要包括错误用例。不要向 \texttt{ResponseWriter} 写入漂亮的 XML 响应，试试这一行：
+
+% SOURCE_PDF_PAGE: 216
+\begin{gocode}[]
+w.WriteHeader(http.StatusInternalServerError)
+\end{gocode}
+
+如果 XML 格式损坏，你会期待发生什么？
+
+\subsection{在 \texttt{money} 包中集成}
+
+现在，我们已经可以取得汇率了。回到 \texttt{main}，该如何把欧洲中央银行客户端与 \texttt{Convert} 一起使用呢？
+
+\subsubsection*{接口定义}
+
+在一些常见语言中，接口是每个实现都必须满足的契约。在 Go 中，情况恰好相反。在不需要接口时，我们就不写接口；只有当接口能让工作更简单时，才需要它。如果你来自 Java 或 C++ 这类强面向对象语言，Go 中有一句话可能会让你觉得反直觉，因为那些语言中的接口是隐式的：接口应该被发现，而不是被设计。这是什么意思？我们已经为 \texttt{Convert} 编写了一个依赖，却没有先定义两个包之间的契约：\texttt{money.Convert} 必须使用 \texttt{ecbank} 包中的某些东西。现在补上还不晚。为了告诉 \texttt{Convert} 它期望何种汇率提供方，我们可以采用已有的函数签名；它足够通用，可以在测试中被模拟。把它放进一个供 \texttt{Convert} 使用的接口中，如下一代码清单所示。和往常一样，把接口放在需要它的地方：可以就在 \texttt{Convert} 旁边声明。
+
+\begin{gocode}[title={代码清单 6.50 \texttt{exchangerates.go}：接口定义}]
+type exchangeRates interface { #1
+    FetchExchangeRate(source, target Currency) (ExchangeRate, error)
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 不要导出它。
+\end{codeannotations}
+
+我们不需要导出这个接口，因为其他包不会使用它。我们不希望别的任何人
+
+% SOURCE_PDF_PAGE: 217
+依赖这个接口；它属于本包。如果别人需要调用同一个 API，他们会定义自己的一行接口，并按自己的方式模拟它。这会大幅降低耦合。接下来，看看怎样使用这个接口。
+
+\subsubsection*{在 \texttt{Convert} 中使用 \texttt{FetchExchangeRate}}
+
+现在可以把这个依赖添加到 \texttt{Convert} 的签名，并调用它获取当前汇率，如代码清单 6.51 所示。因为调用方负责提供汇率提供方的实现，所以它会知道该实现可能返回的所有错误类型。如果发生任何问题，我们只需包装收到的错误，并让它向上传递。
+
+\begin{gocode}[title={代码清单 6.51 \texttt{convert.go}：最终实现}]
+// Convert 应用汇率，把金额转换成目标货币。
+func Convert(
+    amount Amount, to Currency, rates exchangeRates) (Amount, error) {
+    // 获取当天汇率
+    r, err := rates.FetchExchangeRate(amount.currency, to) #1
+    if err != nil {
+        return Amount{}, fmt.Errorf(
+            "cannot get change rate: %w", err) #2
+    }
+
+    convertedValue := applyExchangeRate(amount, to, r)
+
+    if err := convertedValue.validate(); err != nil {
+        return Amount{}, err
+    }
+
+    return convertedValue, nil
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 获取当天汇率
+\item 使用 \texttt{\%w} 包装
+\end{codeannotations}
+
+\subsubsection*{修复测试}
+
+是时候修复测试了。如果想图快，实现本地接口的最简方案就是 \texttt{nil}。试试下面的写法：
+
+% SOURCE_PDF_PAGE: 218
+\begin{gocode}[]
+got, err := money.Convert(tc.amount, tc.to, nil)
+\end{gocode}
+
+\Needspace{5\baselineskip}
+测试可以编译，但如果尝试运行，就会迎来一场货真价实的 \texttt{panic}（恐慌发作）：
+
+\begin{shellcode}[]
+panic: runtime error: invalid memory address or nil pointer dereference
+\end{shellcode}
+
+这条消息表示，你正试图通过一个明显无效的指针访问字段或方法；我们的 \texttt{nil} 值正是这种情况。C 语言家族把它称为段错误（segmentation fault），Java 家族则称为 \texttt{NullPointerException}。运行时，你的机器正尝试调用一个对象上的函数，而该对象没有有效地址（可以由值 0 识别）。在 Go 中，这会让运行时系统触发 \texttt{panic}。
+
+看着是不是很有意思？幸好这发生在测试环境，而不是生产平台。亲身遇见这些运行时错误总是很有价值。经历过几次之后，调查问题时你就会准确知道自己在找什么。我们是否越界访问了切片？是否解引用了无效指针？是不是刚刚除以了 0？我们来修复它：在测试文件里实现一个存根（stub），也就是实现接口并返回测试所需值的极简结构体（见代码清单 6.52）。如果在更大的项目中需要模拟对象（mock），有不少工具可以根据接口定义生成，例如 \texttt{minimock} 或 \texttt{mockgen}。模拟对象和存根的区别是：模拟对象会检查自己是否被调用；如果预期调用与实际调用不符，就让测试失败。存根只会在被调用时模仿预期行为，却无法验证任何事情。
+
+% SOURCE_PDF_PAGE: 219
+\begin{gocode}[title={代码清单 6.52 \texttt{convert\_test.go}：用存根代替依赖}]
+// stubRate 是 exchangeRates 的一个非常简单的存根。
+type stubRate struct {
+    rate money.ExchangeRate
+    err error
+}
+
+// FetchExchangeRate 用相同签名实现 exchangeRates 接口，
+// 但测试不使用这些字段。
+func (m stubRate) FetchExchangeRate(
+    _, _ money.Currency, #1
+) (money.ExchangeRate, error) {
+    return m.rate, m.err
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 明确忽略不需要的参数
+\end{codeannotations}
+
+\begin{infobox}{支线任务 6.2}
+更新单元测试的其余部分。你需要把存根添加到测试用例场景中，并给出期望从依赖中得到的汇率。
+\end{infobox}
+
+\subsection{在 \texttt{main} 中注入依赖}
+
+最后缺失的一块就是构建 \texttt{EuroCentralBank} 并将其传给 \texttt{Convert}，如下面的代码清单所示。这里使用零值即可，因为 \texttt{FetchExchangeRate} 已经知道该向哪个 URL 请求汇率。
+
+\begin{gocode}[title={代码清单 6.53 \texttt{main.go}：使用换算汇率}]
+[...]
+rates := ecbank.EuroCentralBank{}
+
+convertedAmount, err := money.Convert(amount, toCurrency, rates)
+[...]
+\end{gocode}
+
+试试看。大家现在都累了，所以这里再给一次命令示例：
+
+\begin{shellcode}[]
+> go run . -from EUR -to JPY 15.23
+\end{shellcode}
+
+% SOURCE_PDF_PAGE: 220
+你可以尝试无效的货币和数字，尽情玩吧——反正又不是你的钱。
+
+\subsection{共享可执行文件}
+
+虽然 \texttt{go run .} 命令很好用，但有时你并不想把源代码分享给别人，只想分享编译后的二进制文件。在 Go 中，可以用以下命令生成可执行文件：
+
+\begin{shellcode}[]
+> go build -o bin/convert main.go
+\end{shellcode}
+
+这条命令会在 \texttt{bin} 目录中生成名为 \texttt{convert} 的可执行二进制文件。当然，位置可以更改。和所有标志一样，\texttt{-o} 标志有默认值，即当前目录。随后，可以这样执行它：
+
+\begin{shellcode}[]
+> ./convert -from EUR -to JPY 15.23
+\end{shellcode}
+
+\section{改进}
+
+我们给出的实现存在许多细小问题。本章的目标是得到一个能工作的解决方案，而不是完美的解决方案。下面逐一看看一些思路，并实现其中一项改进。
+
+\subsection{缓存}
+
+首先，每次运行工具时，我们都会调用银行，这很浪费资源。例如，你可能想编写一个脚本，从文件中读取一长串金额，并把每一行的金额换算成菲律宾比索。当前实现会为每一行发送一次完全相同的 HTTP 调用，这相当耗时。
+
+% SOURCE_PDF_PAGE: 221
+一种解决方案是把汇率转储到临时文件，并在文件名中带上日期。\texttt{ecbank.Client} 结构体将持有指向该文件的指针。如果文件不存在，就获取汇率并将其转储。如果文件太旧，也执行同样操作；否则，从文件加载。然后还需要通过另一个标志提供清空缓存的方式。
+
+\subsection{超时}
+
+也许有一天，你会遇到本书一位作者经历过的场景：想查询欧元与英镑之间的汇率，可乘火车从海底穿行时，头顶有一片大海，于是失去了 4G 信号。（趣闻：世界上最长的铁路海底区段长 37.9 km，最快的列车在其中也只能以 160km/h 行驶。）发起 HTTP 调用后，如果服务器始终不回答，会发生什么？什么也不会发生——除非你通过超时机制提前做了安排。
+
+在 \texttt{FetchExchangeRate} 函数中，我们调用的是 \texttt{http.Get}。它在底层使用 \texttt{net/http} 包提供的默认客户端。对于本章这样的小例子，这完全没问题，但对生产代码来说肯定远远不够。运行 \texttt{go doc http.Client} 可以看到，\texttt{Client} 结构体的一个字段是 \texttt{Timeout}。不出所料，设置它就能中断超过给定时长的调用。这个字段的默认值，也就是 \texttt{http.DefaultClient} 中的默认值，为零；按照文档，这意味着“不超时”，如代码清单 6.54 所示。例如，使用 \texttt{http.Client\{Timeout: 5*time.Second\}} 会创建一个具有特定超时的客户端，可以安全地用它取代默认客户端。如果查看客户端在代码中的定义，会看到很多默认零值。
+
+% SOURCE_PDF_PAGE: 222
+\begin{gocode}[title={代码清单 6.54 \texttt{net/http/client.go}：\texttt{DefaultClient} 的实现}]
+// DefaultClient 是默认 Client，由 Get、Head 和 Post 使用。
+var DefaultClient = &Client{}
+\end{gocode}
+
+它是一个指针，所以任何人修改它，都会让整个程序发生变化。这其实是一项设计选择：可以在程序启动时为这个变量设置超时，程序的其余部分便可依赖它，并使用这个超时值。但它是一个全局变量，程序的其他部分可以修改它，因此你只能寄希望于没有任何库把 \texttt{DefaultClient} 的超时改成与你设定值不同的值。如果想体会这有多烦人，只需想象你的智能手机不幸把两个联系人的电话号码对调了，而你必须设法弄清谁是谁。
+
+相反，我们可以声明自己的 \texttt{http.Client}，只在 \texttt{EuroCentralBank} 结构体中使用，并调用这个客户端的 \texttt{Get} 方法，如下一代码清单所示。这样就可以设置一个超时，而且它只会用于我们调用欧洲中央银行的期间。
+
+% SOURCE_PDF_PAGE: 223
+\begin{gocode}[title={代码清单 6.55 \texttt{ecb.go}：超时示例}]
+// Client 可以调用银行以获取汇率。
+type Client struct {
+    client http.Client #1
+}
+
+// NewBank 构建一个能在给定超时时间内获取汇率的 Client。
+func NewClient(timeout time.Duration) Client { #2
+    return Client{
+        client: http.Client{Timeout: timeout},
+    }
+}
+
+// FetchExchangeRate 获取当天的 ExchangeRate 并返回。
+func (c Client) FetchExchangeRate(
+    source, target money.Currency) (money.ExchangeRate, error) {
+    const path =
+        "http://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
+
+    resp, err := c.client.Get(path) #3
+    [...]
+\end{gocode}
+
+\begin{codeannotations}
+\item 给结构体添加字段
+\item 添加一个用于构建银行客户端的函数
+\item 使用我们自己的客户端
+\end{codeannotations}
+
+\texttt{main} 函数也必须相应调整：
+
+\begin{gocode}[]
+rates := ecbank.NewBank(30 * time.Second)
+\end{gocode}
+
+现在，我们已经做好了应对海底隧道的准备。如果达到超时，\texttt{http.Get} 函数会立即返回一个错误（以及一个无法使用的响应），之后由调用方决定该怎么做。\texttt{net/http} 包在 \texttt{http.Get} 文档中警告我们，返回的错误属于 \texttt{*url.Error} 类型（指针这一信息非常重要），并且可以利用返回的错误判断调用是否超时。这正是发现 \texttt{errors} 包中一个实用函数的好机会。
+
+我们已经看到，可以用 \texttt{errors.Is} 检查错误是否属于某个特定种类。有时，我们希望进一步检查错误，尤其是当我们知道除了错误消息之外，还能从错误中提取其他内容时。在这个场景中，我们得知错误实际上属于某个特定类型。这意味着
+
+% SOURCE_PDF_PAGE: 224
+可以把它转换成该类型：
+
+\begin{gocode}[]
+urlErr, ok := err.(*url.Error)
+\end{gocode}
+
+只要 \texttt{ok} 变量为真，就可以访问 \texttt{*url.Error} 结构体的字段和方法。来看看那里有什么：\texttt{go doc url.Error}。
+
+可以看到，该结构体导出了几个字段：尝试执行的操作、请求的 URL，以及错误本身。对我们来说，有意思的地方是可以调用返回布尔值的 \texttt{Timeout} 方法。这样就能确认，我们确实达到了超时：
+
+\begin{gocode}[]
+if urlErr.Timeout() {
+\end{gocode}
+
+这很不错，不过还有一种更漂亮、更符合惯用法的方式来执行这个操作：使用 \texttt{errors.As} 函数。它的签名很简单：接收一个错误和一个目标，然后返回一个布尔值，表示操作是否成功。成功时，目标中会包含原始错误的值。
+
+因为 \texttt{errors.As} 会向目标参数写入内容，所以必须传入一个用来接收该值的变量指针，就像之前使用 \texttt{encoding/xml} 包的 \texttt{Decode} 方法时一样。在我们的场景中，需要传入一个指向 \texttt{*url.Error} 类型变量的指针。是的，那是一个指向指针的指针。但必须明白，我们只是传递某个变量的地址；这个变量本身恰好也是指针，与传址这件事无关——我们只是从 \texttt{http.Get} 文档中得到了这项信息。接下来，如果一切如预期发生，就可以使用（此时已经填充的）\texttt{*url.Error} 检查它是否确实表示超时。
+
+% SOURCE_PDF_PAGE: 225
+\begin{gocode}[title={代码清单 6.56 \texttt{ecb.go}：检查超时}]
+func (c Client) FetchExchangeRate(
+    source, target money.Currency) (money.ExchangeRate, error) {
+    [...]
+    resp, err := c.client.Get(path)
+    if err != nil {
+        var urlErr *url.Error #1
+        if ok := errors.As(err, &urlErr); ok && urlErr.Timeout() {
+            // 这是超时！
+\end{gocode}
+
+\begin{codeannotations}
+\item 无须初始化它；\texttt{errors.As} 会填充它。
+\end{codeannotations}
+
+达到超时时该做什么，现在由你决定。稍等片刻后重试可能很有意义（也许我们已经驶出海底隧道，4G 覆盖变好了）。或者也可以决定，货币换算期间遇到的任何错误对这个过程而言都是致命的，而决定如何处理网络错误并不是转换器的职责。
+
+\subsubsection*{不止超时}
+
+正如我们看到的，\texttt{http.Client} 结构体可以配置超时。但超时并不是客户端唯一可以设置的值。例如，这里并没有覆盖 \texttt{http.Client} 的 \texttt{Transport} 字段，因此客户端会使用 \texttt{http.DefaultTransport}。使用专用 \texttt{http.Client} 的理由在这里依然成立；我们或许还想调整 \texttt{Client} 中的 \texttt{Transport}。
+
+\subsubsection*{测试我们的实现}
+
+我们无法复用之前的同一个测试，因为当时只把银行的 URL 传给了 \texttt{Client}。这一次，需要使用一个会代理到服务器 URL 的客户端。可以通过 \texttt{http.Client} 结构体的 \texttt{Transport.Proxy} 字段实现。具体实现见下面的代码清单。
+
+% SOURCE_PDF_PAGE: 226
+\begin{gocode}[title={代码清单 6.57 \texttt{ecb\_internal\_test.go}：测试汇率}]
+func TestEuroCentralBank_FetchExchangeRate_Success(t *testing.T) {
+    ts := httptest.NewServer(...)
+    defer ts.Close()
+
+    proxyURL, err := url.Parse(ts.URL)
+    if err != nil {
+        t.Fatalf("failed to parse proxy URL: %v", err)
+    }
+
+    ecb := Client{
+        client: &http.Client{
+            Transport: &http.Transport{
+                Proxy: http.ProxyURL(proxyURL), #1
+            },
+            Timeout: time.Second, #2
+        },
+    }
+    got, err := ecb.FetchExchangeRate(
+        mustParseCurrency(t, "USD"), mustParseCurrency(t, "RON"))
+    ...
+\end{gocode}
+
+\begin{codeannotations}
+\item 客户端调用服务器的 URL。
+\item 设置超时
+\end{codeannotations}
+
+测试的其余部分与以前相同，但这只测试了成功路径，所以我们还要测试发生超时的情况！为此，将修改测试中构建的 \texttt{NewServer} 的行为：不再向响应写入 XML 消息，而是改用 \texttt{time.Sleep} 模拟长时间等待，如代码清单 6.58 所示。我们将复用一个与成功测试中类似的客户端；这一次，要检查是否如愿返回了错误！
+
+% SOURCE_PDF_PAGE: 227
+\begin{gocode}[title={代码清单 6.58 \texttt{ecb\_internal\_test.go}：测试超时}]
+func TestEuroCentralBank_FetchExchangeRate_Timeout(t *testing.T) {
+    ts := httptest.NewServer(
+        http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        time.Sleep(time.Second * 2) #1
+    }))
+    defer ts.Close()
+
+    proxyURL, err := url.Parse(ts.URL)
+    if err != nil {
+        t.Fatalf("failed to parse proxy URL: %v", err)
+    }
+
+    ecb := Client{
+        client: &http.Client{
+            Transport: &http.Transport{
+                Proxy: http.ProxyURL(proxyURL),
+            },
+            Timeout: time.Second, #2
+        },
+    }
+
+    _, err = ecb.FetchExchangeRate(
+        mustParseCurrency(t, "USD"), mustParseCurrency(t, "RON"))
+    if !errors.Is(err, ErrTimeout) { #3
+        t.Errorf("unexpected error: %v, expected %v", err, ErrTimeout)
+    }
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 服务器会花 2 秒才响应。
+\item 客户端会在 1 秒后超时。
+\item 检查是否得到适当的错误
+\end{codeannotations}
+
+\subsubsection*{超时的取值}
+
+选择“合适”的超时值时，应当考虑自己正在执行的调用。超时值代表你的耐心极限。你不应该去考虑远程服务为了执行查询必须做什么，因为你本来就不该知道。它的实现和性能可能发生变化，而你不必随之修改代码。在调用外部资源时，有一条经验法则：只要调用离开了你的环境——无论本地网络还是云平台——都应该给它最多几秒钟时间。你需要把所有这些耗时的网络握手都考虑进去。本地运行时，只有大型进程才可以容忍几秒钟，而通常的取值不到一秒。这些数字并非一成不变，因为它们需要
+% SOURCE_PDF_PAGE: 228
+根据你自己的用例调整。对于互联网调用来说，只允许 20 毫秒太短；而如果本地查询的超时是 30 分钟，那么架构里就有些不对劲了。
+
+\subsection{另一种目录树}
+
+在日常开发工作中，你会需要从开源世界导入外部库，这是非常常见的事。一般来说，导出类型会放在模块根目录，因为这样能最大限度缩短用户访问所需包的路径。比较 \texttt{github.com/learngo-pockets/money} 与 \texttt{github.com/learngo-pockets/moneyconverter/money}。
+
+\Needspace{16\baselineskip}
+我们创建了一个名为 \texttt{money} 的文件夹，其中包含一个文件；所有导出的方法和类型都位于根目录，供用户使用。如果需要 \texttt{main}，通常会把它创建在名为 \texttt{cmd}（command 的缩写）的文件夹中。下面是一个导入我们库的项目示例：
+
+\begin{treebox}
+\PocketTreeLine{\textgreater{} tree}
+\PocketTreeLine{.}
+\PocketTreeLine{├── cmd/main.go}
+\PocketTreeLine{├── money}
+\PocketTreeLine{│\hspace*{3em}└── money.go}
+\PocketTreeLine{└── go.mod}
+\end{treebox}
+
+恭喜！你完成了！这一章很艰难，涉及各种不同概念；接下来的章节中，我们还会再次练习它们。
+
+\section*{小结}
+
+\begin{itemize}
+\item \texttt{flag} 包提供了一些函数，让我们可以从命令行取得参数和可选参数。我们甚至可以为
+% SOURCE_PDF_PAGE: 229
+标志设置默认值。请记住，检查标志值之前要调用 \texttt{flag.Parse()}。
+\item 实现功能时，最好声明能够反映待处理核心实体的类型。在这个项目中，我们创建了 \texttt{Currency}、\texttt{Decimal} 和 \texttt{Amount}，并且在编写任何一项数学运算或调用任何一个函数之前，就定义好了 \texttt{Convert} 应该做什么。我们从一开始也知道怎样组织代码，包括哪些类型和函数应当导出。
+\item 简单的 \texttt{fmt.Stringer} 接口让打印复杂结构体变得容易。
+\item 浮点数充其量只能说是不精确。比较两个浮点数时，总应该留出误差余量。由于精度限制，对浮点数进行的运算有时会显得毫无道理。了解它们的精度，以及使用它们的计算所需的精度，有助于在 \texttt{float32}、\texttt{float64}、\texttt{big.Float} 或其他选项之间做出选择。
+\item 构建包时，最常见的做法是从 API 开始，以未导出函数结束。
+\item Go 的 \texttt{net/http} 包提供了通过网络执行 HTTP 调用的函数，例如 GET 或 POST 请求。它提供了一个默认客户端，可以用于原型开发，但出于安全原因，不应保留在生产级代码中。
+\item HTTP 调用会返回一个包含状态码的响应。必须检查这个状态码——它说明响应体是否有意义。状态码分为五类，但最重要的是 200（以及 2xx），表示一切正常；400（以及 4xx），表示请求可能不正确（缺少某些字段、某些
+% SOURCE_PDF_PAGE: 230
+身份验证信息有误，等等）；以及 500（以及 5xx），表示服务器遇到问题，无法处理请求。
+\item 测试 HTTP 调用时，不应依赖外部行为。Go 提供 \texttt{httptest} 包来模拟 HTTP 调用，它提供了为测试搭建 HTTP 服务器的基础设施。\texttt{httptest.NewServer} 函数尤其适合用来模拟真实的 HTTP 交互。
+\item 整洁的代码会分离每个包的职责。获取数据与计算数据不是同一项任务，应该由不同代码分别处理。Go 提供了极其简单的接口，可用于依赖注入。依赖注入让代码变简单，也让测试更加简单。
+\item 存根是实现接口的一种好方法。只需在需要实现接口的地方——通常是在 \texttt{\_test.go} 文件中——声明一个结构体，并让它实现该接口。存根在尝试提高测试覆盖率时很有用，但它们只能用于单元测试，因为它们不会检查调用的完整逻辑。
+\item 包中的导出函数应返回哨兵错误（sentinel error）。这样，包用起来会很整洁、简单。在包的实现中，是在导出函数还是未导出函数中创建哨兵错误，则由开发者决定。
+\item 使用 \texttt{errors.Is} 可以测试错误是否为哨兵错误。使用 \texttt{errors.As} 可以访问错误的字段和方法。
+\item Go 的 \texttt{encoding/xml} 包提供了一个函数和一个方法，用来解码 XML 消息。为了把一些字节解码到结构化变量中，Go 语法要求我们用 XML 路径描述想要解码的字段值可以从何处
+% SOURCE_PDF_PAGE: 231
+读取。甚至可以在该路径中使用 \texttt{>} 字符跳过层级。
+\item 工具链提供了 \texttt{go build -o path/to/exec .} 命令，可在指定位置生成可执行文件。
+\end{itemize}
