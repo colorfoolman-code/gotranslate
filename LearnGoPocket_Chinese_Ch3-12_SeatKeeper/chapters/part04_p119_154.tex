@@ -1,0 +1,910 @@
+% SOURCE_PDF_PAGE: 119
+我们的伪代码在语法上会接近 Go，使用花括号，因为我们认为这在本书中更合适。我们之前也写过使用方框、箭头和循环的伪代码草稿。
+
+\begin{gocode}[title={代码清单 5.27 \texttt{computeFeedback()} 的伪代码}]
+func computeFeedback(guess, solution) feedback {
+
+    for all characters of the guess { #1
+        mark character absent
+    }
+
+    for each character of the attempt {                  #2
+        if the character in solution and guess the same {
+            mark character as seen in the solution
+            mark character with correct position status
+        }
+    }
+
+    for each character of the guess {                        #3
+        if current character already has a hint {
+            skip to the next character
+        }
+
+        if character is in the solution and not yet seen {
+            mark character as seen in the solution
+            mark character with correct position status
+        }
+    }
+
+    return the hints
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 初始化变量
+\item 首先标记处于正确位置的字符
+\item 最后，把所有位置错误的字符标记出来（如果存在）
+\end{codeannotations}
+
+写完伪代码后，我们可以拿一些例子来检验代码，看看它会如何运行。先遍历位置正确的字符，再遍历位置错误的字符，对于 ``SMALL'' 和 ``HELLO''，我们会得到预期输出：
+
+\begin{shellcode}[]
+S M A L L
+H E L L O
+(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketYellowCircle@*)(*@\PocketGreenHeart@*)(*@\PocketGraySquare@*)
+\end{shellcode}
+
+我们需要思考如何实现那些仍带有“伪代码魔法”的不同部分。怎样给一个
+% SOURCE_PDF_PAGE: 120
+字符配上提示？怎样把一个字符标记为已在答案中出现？实现方式有很多，这里我们采用一种简单做法。我们会用一个提示切片给猜测中的字符标上相应提示，再用一个布尔值切片把答案中的字符标记为已出现或尚未出现，如代码清单 5.28 所示。建议你先自己试一试，再查看答案。
+
+% SOURCE_PDF_PAGE: 121
+\begin{gocode}[title={代码清单 5.28 game.go：\texttt{computeFeedback()} 方法}]
+// computeFeedback 对猜测中的每个字符与答案进行核验。
+func computeFeedback(guess, solution []rune) feedback {
+    // 初始化标记容器
+    result := make(feedback, len(guess)) #1
+    used := make([]bool, len(solution)) #2
+
+    if len(guess) != len(solution) {
+        _, _ = fmt.Fprintf(os.Stderr, "Internal error! Guess and solution" +
+            " have different lengths: %d vs %d", len(guess), len(solution))
+        return result #3
+    }
+
+    // 检查位置正确的字母
+    for posInGuess, character := range guess {
+        if character == solution[posInGuess] {
+            result[posInGuess] = correctPosition
+            used[posInGuess] = true
+        }
+    }
+
+    // 查找位置错误的字母
+    for posInGuess, character := range guess {
+        if result[posInGuess] != absentCharacter {
+            // 该字符已经被标记，忽略它。
+            continue
+        }
+
+        for posInSolution, target := range solution {
+            if used[posInSolution] {
+                // 答案中的这个字母已经分配给猜测中的一个字母。
+                // 跳到答案的下一个字母。
+                continue #4
+            }
+
+            if character == target {
+                result[posInGuess] = wrongPosition
+                used[posInSolution] = true
+                // 跳到猜测的下一个字母。
+                break #5
+            }
+        }
+    }
+
+    return result
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 自然地以零值 \texttt{absentCharacter} 初始化
+\item 以 \texttt{false}（尚未出现）初始化
+\item 利用了零值
+\item 继续遍历答案的内层 \texttt{for} 循环
+\item 结束遍历答案的内层 \texttt{for} 循环
+\end{codeannotations}
+
+这里棘手的一点，是处理猜测与答案长度不同的情况。因为这是我们自己的代码，
+% SOURCE_PDF_PAGE: 122
+我们知道这种情况不可能发生，因为前面已经检查过了。但如果以后有人修改代码（也包括那个把自己写过什么、为什么这么写全忘了的未来卢西奥），程序就会在运行时以段错误告终；我们甚至无法用单元测试提醒他。因此，我们决定在这里再次核对猜测和答案的长度。
+
+另一种办法是修改 \texttt{computeFeedback} 函数，让它同时返回 \texttt{feedback} 和一个错误。对于由我们控制输入的内部函数，这类假设是可以接受的；但导出函数绝不能这样做，因为我们无法控制传给它们的取值范围。
+
+恭喜，你已经实现了最困难的部分！现在来加一些测试。
+
+\subsubsection*{测试 \texttt{computeFeedback()}}
+
+要正确测试 \texttt{computeFeedback} 方法，我们需要提供一次猜测、一个答案以及预期反馈。有了这些之后，就可以调用 \texttt{computeFeedback}，并验证收到的反馈是否正是预期结果。
+
+为了方便比较两个反馈，我们在 \texttt{feedback} 定义旁边写一个辅助方法，如代码清单 5.29 所示。Google 的 \texttt{github.com/google/go-cmp/cmp} 包给了我们一些关于该方法命名方式的启发：“带有 \texttt{Equal} 方法的类型可以使用该方法判断相等性。”
+
+% SOURCE_PDF_PAGE: 123
+\begin{gocode}[title={代码清单 5.29 hint.go：\texttt{Equal()} 辅助方法}]
+// Equal 判断两个 feedback 是否相等。
+func (fb feedback) Equal(other feedback) bool {
+    if len(fb) != len(other) {
+        return false
+    }
+
+    for index, value := range fb {
+        if value != other[index] {
+            return false
+        }
+    }
+
+    return true
+}
+\end{gocode}
+
+前面为了比较两个切片，我们使用了 \texttt{golang.com/x/exp/slices} 包。写代码总是有不止一种做法。这里我们给出另一种思路，它和之前的做法一样有效。互联网上到处都能找到支持这两种做法的论点。我们的建议是：哪一种对你更清楚，就用哪一种。如果你好奇，花时间看看 \texttt{slices.Equal} 的实现很值得，不过这需要对泛型有一定了解，而那是后面的主题。
+
+现在你已经知道如何以表驱动方式编写测试。首先，定义保存测试用例所需元素、输入和预期输出的结构体；然后写出用例；最后调用方法并检查结果。这里为了清晰，也为了避免不必要的笨拙，我们决定在测试用例结构体中用字符串而不是 rune 切片表示猜测和答案。字符串到 rune 切片的转换足够简单、安全，可以在执行测试时完成。另一方面，我们希望明确检查返回的 \texttt{feedback} 内容，因此测试用例中有一个 \texttt{feedback} 字段。
+
+% SOURCE_PDF_PAGE: 124
+\begin{gocode}[title={代码清单 5.30 game\_internal\_test.go：\texttt{computeFeedback()} 测试}]
+package gordle
+
+import "testing"
+
+func TestComputeFeedback(t *testing.T) {
+    tt := map[string]struct {
+        guess             string
+        solution          string
+        expectedFeedback feedback
+    }{
+        "nominal": {...},
+        "double character": {...},
+        "double character with wrong answer": {...},
+        "two identical, but not in the right position": {
+            guess:    "hlleo",
+            solution: "hello",
+            expectedFeedback: feedback{
+                correctPosition,
+                wrongPosition,
+                correctPosition,
+                wrongPosition,
+                correctPosition},
+        },
+    }
+
+    for name, tc := range tt {
+        t.Run(name, func(t *testing.T) {
+            fb := computeFeedback([]rune(tc.guess), []rune(tc.solution))
+            if !tc.expectedFeedback.Equal(fb) {
+                t.Errorf(
+                    "guess: %q, got the wrong feedback, wanted %v, got %v",
+                    tc.guess, tc.expectedFeedback, fb)
+            }
+        })
+    }
+}
+\end{gocode}
+
+\begin{infobox}{支线任务 5.2}
+项目的一部分乐趣，就在于想出一些边界场景。试着找出一些能把这套逻辑推到极限的情况。
+\end{infobox}
+
+最后，我们需要把 \texttt{computeFeedback} 调用集成到 \texttt{Play} 函数中，如代码清单 5.31 所示。这并不太难，尤其是我们只想把反馈打印给克劳迪奥。
+
+% SOURCE_PDF_PAGE: 125
+\begin{gocode}[title={代码清单 5.31 game.go：更新 \texttt{Play()} 以显示反馈}]
+[...]
+for currentAttempt := 1; currentAttempt <= g.maxAttempts; currentAttempt++ {
+    guess := g.ask()
+
+    fb := computeFeedback(guess, g.solution) #1
+
+    fmt.Println(fb.String()) #2
+
+    if slices.Equal(guess, g.solution) {
+        fmt.Printf("(*@\PocketParty@*) You won! You found it in %d guess(es)! The word was: %s.\n",
+            currentAttempt, string(g.solution))
+        return
+    }
+}
+[...]
+\end{gocode}
+
+\begin{codeannotations}
+\item 将猜测与答案进行核对
+\item 把反馈打印给玩家
+\end{codeannotations}
+
+最后，实际玩起来是这样的：
+
+\begin{shellcode}[]
+> go run main.go
+Welcome to Gordle!
+Enter a 5-character guess:
+ h a i r y
+(*@\PocketGreenHeart@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*) #1
+Enter a 5-character guess:
+ h o l l y
+(*@\PocketGreenHeart@*)(*@\PocketYellowCircle@*)(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*)(*@\PocketGraySquare@*) #2
+Enter a 5-character guess:
+ h e l l o
+(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*) #3
+(*@\PocketParty@*) You won! You found it in 3 attempt(s)! The word was: hello.
+\end{shellcode}
+
+\begin{codeannotations}
+\item 第一次尝试：第一个字符位置正确，其余字符均不存在
+\item 第二次尝试：三个字符位置正确，一个字符位置错误
+\item 第三次尝试：字符全部正确
+\end{codeannotations}
+
+现在我们有了答案检查器，也能给克劳迪奥一些他应得的反馈！反馈让玩家找出答案容易得多。不过，我们还需要处理最后一个小细节，让游戏更有趣：如果克劳迪奥每次玩 Gordle 都能遇到不同的单词，怎么样？我们已经证明，
+% SOURCE_PDF_PAGE: 126
+采用硬编码答案的实现能够正常工作，所以现在该给游戏添加词库和随机化了。
+
+\section{词库}
+
+在语言学中，语料库（corpus）是句子或单词的集合，它被认为具有代表性，并用于词汇、语法或其他语言分析。我们的词库将是一组字符数相同的单词。
+
+到目前为止，我们一直使用硬编码答案，并确保算法按预期运行。本节将着重通过从给定列表中选择一个单词，为游戏添加随机性。我们先取得一个单词列表，然后从中随机选出一个单词作为游戏答案。
+
+\subsection{创建单词列表}
+
+首先，创建一个 \texttt{corpus} 目录，其中有一个名为 \texttt{english.txt} 的文件。该文件包含一列大写英语单词，每行一个。我们的词库是在玩其他版本的游戏时建立的。你可以随意为自己的游戏选用合适的列表。现在要为另一种语言或不同规格的单词列表（例如六个字符长）添加新词库很简单：只需在这里加入一个文件，并让程序加载它。
+
+\subsection{读取词库}
+
+解析文件是大多数程序都会遇到的一项常见任务。它可能是要加载默认值的配置文件，可能像这里一样是输入文件，也可能是数据库查询、图像、视频文件，或你能想到的任何东西。只要某样东西存在磁盘上，就会有程序去读取它。对我们来说，
+% SOURCE_PDF_PAGE: 127
+目标是把词库文件读成单词列表，并将其存入字符串切片。
+
+先新建文件 \texttt{corpus.go}，所有与词库有关的方法都放在这里。怎样读取词库呢？恰好，\texttt{os} 包提供了 \texttt{ReadFile} 方法：它接收磁盘上的文件路径作为参数，读取文件，并以字节切片返回内容。它会读取整个文件；如果发生了什么坏事，就返回错误。下面是 \texttt{os.ReadFile} 方法的签名：
+
+\begin{gocode}[]
+func ReadFile(name string) ([]byte, error)
+\end{gocode}
+
+要记住，文件写到磁盘上时不过是一大块字节。漂亮的字符、空格、制表符、表格等内容都是文件编辑器渲染出来的。本书保存下来，也不过是一些 0 和 1。这就是为什么 \texttt{ReadFile} 函数不会直接给我们一个行列表。读取时，我们必须自己实现这层逻辑。我们知道其中一些字节是换行符，但不要急着采取简单办法，例如按 \texttt{\textbackslash n} 拆分这个字节切片。如果 \texttt{\textbackslash n} 的字节表示（\texttt{0x0a}）其实是某个非 ASCII 长字符表示的一部分呢？又或者文件采用了另一种编码，换行符不是 \texttt{\textbackslash n}，而是 \texttt{\textbackslash r\textbackslash n} 呢？
+
+在我们的场景中，操作字节数组不太方便，因此我们会把它转换为字符串，再按包括换行符在内的任意空白拆分。\texttt{strings} 包导出了 \texttt{Split}。它还有几个近亲：\texttt{SplitAfter\allowbreak N}、\texttt{SplitN}、\texttt{Cut} 和 \texttt{Fields}。需要拆分字符串时，这些函数非常好用。对我们来说，基本的 \texttt{Fields} 就足够了，因为它会按所有默认空白把字符串拆成子字符串切片，使我们不必费心辨认这些空白。这个子字符串切片就是我们的
+% SOURCE_PDF_PAGE: 128
+候选答案单词列表。\texttt{strings.Fields} 函数的签名如下：
+
+\begin{gocode}[]
+func Fields(s string) []string
+\end{gocode}
+
+\texttt{ReadCorpus} 方法的完整代码见下面的清单。
+
+\begin{gocode}[title={代码清单 5.32 corpus.go：\texttt{ReadCorpus} 方法}]
+const ErrCorpusIsEmpty = corpusError("corpus is empty")
+
+// ReadCorpus 读取给定路径下的文件，并返回单词列表。
+func ReadCorpus(path string) ([]string, error) {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, fmt.Errorf("unable to open %q for reading: %w",
+            path, err)
+    }
+
+    if len(data) == 0 {
+        return nil, ErrCorpusIsEmpty
+    }
+
+    // 词库应当是一个按换行或空格分隔的单词列表
+    words := strings.Fields(string(data))
+
+    return words, nil
+}
+\end{gocode}
+
+\subsubsection*{哨兵错误}
+
+无论你选择哪种语言、开发哪种应用，错误管理都是软件开发的核心。假设你尝试逐行读取文件：文件可能不存在；你可能没有适当的读取权限；文件可能为空或不完整；也可能文件可以访问，让你顺利读到末尾。在所有这些情况中，甚至包括成功的那一种，读取器都会返回一个错误；程序要根据具体遇到的错误采取不同反应。为了检查返回的错误，我们会使用像 \texttt{err ==}
+% SOURCE_PDF_PAGE: 129
+\texttt{ErrNoSuchFile} 或 \texttt{err == EOF} 这样的代码（\texttt{EOF} 即 End of File，也就是“文件末尾”，这是成功的情况）。
+
+哨兵错误是一类可识别的错误。在 Go 中，“错误即值”意味着错误承载着含义。哨兵错误必须像常量一样工作，但 Go 只接受原始类型作为常量，不接受方法调用。遗憾的是，创建错误的两种默认方式，分别是调用 \texttt{fmt.Errorf} 或 \texttt{errors.New}。而它们生成的不是常量值；它们生成的是函数输出，这个输出在编译时未知，只有执行时才知道。这意味着由 \texttt{fmt.Errorf} 或 \texttt{errors.New} 生成的错误永远只能是变量。那么，怎样得到我们想要的常量错误呢？我们声明自己的类型，让它实现 \texttt{error} 接口。
+
+\begin{gocode}[title={代码清单 5.33 errors.go：哨兵错误 \texttt{corpusError}}]
+package gordle
+
+// corpusError 定义一个哨兵错误。
+type corpusError string
+
+// Error 是 corpusError 对 error 接口的实现。
+func (e corpusError) Error() string {
+    return string(e)
+}
+\end{gocode}
+
+这样一来，我们就能声明一个作为常量的 \texttt{corpusError}（它和字符串一样属于原始类型），同时它仍然实现了 \texttt{error} 接口。
+
+% SOURCE_PDF_PAGE: 130
+\begin{warningbox}{不要创建全局导出变量}
+如果查看代码中的 \texttt{io.EOF}，你会发现它是一个全局导出变量，由执行时调用 \texttt{errors.New} 生成。不要在家里这么做。想象一下，某个讨厌的同事这样写：
+
+\begin{gocode}[]
+io.EOF = nil
+...
+if err == io.EOF { // 糟糕
+\end{gocode}
+\end{warningbox}
+
+\subsubsection*{测试读取过程}
+
+现在，我们可以测试能否真的把装满单词的文件读入字符串切片。让我们增加一个正常用例，从为英语单词列表创建的词库中读取，核对长度以及相关错误（如果有）。
+
+% SOURCE_PDF_PAGE: 131
+\begin{gocode}[title={代码清单 5.34 corpus\_test.go：测试 \texttt{readCorpus()}}]
+func TestReadCorpus(t *testing.T) {
+    tt := map[string]struct { #1
+        file   string
+        length int
+        err    error
+    }{
+        "English corpus": { #2
+            file:   "../corpus/english.txt",
+            length: 34,
+            err:    nil,
+        },
+        "empty corpus": {
+            file:   "../corpus/empty.txt",
+            length: 0,
+            err:    gordle.ErrCorpusIsEmpty,
+        },
+    }
+
+    for name, tc := range tt {
+        t.Run(name, func(t *testing.T) {
+            words, err := gordle.ReadCorpus(tc.file) #3
+            if !errors.Is(tc.err, err) {
+                t.Errorf("expected err %v, got %v", tc.err, err)
+            }
+
+            if tc.length != len(words) {
+                t.Errorf("expected %d, got %d", tc.length, len(words))
+            }
+        })
+    }
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 嵌入测试所需值的结构体
+\item 正常用例和错误用例
+\item 调用 \texttt{ReadCorpus} 方法，并测试输出值和错误值
+\end{codeannotations}
+
+现在我们满意了：词库已经变成了方便使用的形式，而且它从一种极易更新的文件中读取，只需新增一行放入新单词即可。Gordle 现在认识了一组单词。如果我们从中选出一个，并且努力让每次选择都不相同，那么克劳迪奥每次玩游戏都会遇到不同的挑战。
+
+\subsection{选择一个单词}
+
+每局 Gordle 都需要一个随机单词供玩家猜测。我们已经有了词库，剩下的就是从列表中选择一个单词。
+
+% SOURCE_PDF_PAGE: 132
+实现随机数生成器的库承受着很大压力，因为它们必须满足非常严格的要求。例如，我们期望随机数生成器以相同的概率和耗时生成各个数字。
+
+Go 的 \texttt{math/rand} 包提供随机数生成器，标准包里另一个名为 \texttt{crypto/rand} 的包也能做到。主要区别是，\texttt{crypto} 包保证生成真正的随机数，而 \texttt{math} 包生成伪随机数。代价是什么？\texttt{crypto/rand} 包的开销大得多，因为它依赖系统级熵源，需要访问硬件或操作系统来收集随机性。根据经验，对于小型、非关键应用，使用 \texttt{math} 包完全没问题；涉及密码、令牌或安全相关对象时，则建议使用 \texttt{crypto} 包。
+
+Go 的两个 \texttt{rand} 包都导出了 \texttt{Intn(n int)} 等函数，它返回一个介于 0（包含）和 \texttt{n}（不包含）之间的数。这些包基于使用一个称为 \texttt{source} 的基础值的算法，而这个值可以被覆盖。每次都用变化的值覆盖它，就能确保我们从库中得到随机数。早期 Go 版本（1.20 之前）要求通过调用 \texttt{rand.Seed(seed)} 为 \texttt{rand} 包设置种子。现在，随机数生成器会在程序启动时随机设种，因此再调用它没有实际意义。我们会把这个 \texttt{rand.Seed} 保留在代码中，供没有使用最新版 Go 的读者使用。
+
+现在我们知道如何获得随机数，从列表中选择随机单词就很直接了：只需取随机索引处的单词：
+
+% SOURCE_PDF_PAGE: 133
+\begin{gocode}[]
+index := rand.Intn(len(corpus))
+\end{gocode}
+
+\texttt{pickWord} 函数的实现如下所示。
+
+\begin{gocode}[title={代码清单 5.35 corpus.go：\texttt{pickWord()} 方法}]
+// pickWord 从词库中返回一个随机单词
+func pickWord(corpus []string) string {
+    index := rand.Intn(len(corpus))
+
+    return corpus[index]
+}
+\end{gocode}
+
+\subsubsection*{如何测试随机函数}
+
+你知道，先测试核心方法以确保它们正常工作，再从更高层方法调用它们，这非常重要。\texttt{pickWord} 也会遵循这一惯例，但这里有一个小问题。执行测试时，我们通常想把输出与基准进行比较。可是，\texttt{pickWord} 按设计就会产生不确定的输出。遇到这种情况，我们有两种选择。第一种是在测试中改变随机数生成器的行为（但那样我们什么也没测试）。第二种是对输出的某个事实作断言：我们真正想测试的是，这个方法是否返回列表中的单词，或者大量调用随机函数所得结果是否符合预期分布。因此，我们会选择第二种办法，确保 \texttt{pickWord} 返回的单词确实位于初始列表中。这里不会使用表驱动测试，因为我们没有多种多样的用例。
+
+首先，编写一个辅助函数，验证某个单词是否存在于单词列表中，如代码清单 5.36 所示。这里没有什么特殊技巧：必须遍历列表；如果单词与输入一致，就立即返回 \texttt{true}；否则返回 \texttt{false}。和前面两个比较切片的函数一样，
+% SOURCE_PDF_PAGE: 134
+这个函数也很常见，我们可以把它做得更通用。
+
+\begin{gocode}[title={代码清单 5.36 corpus\_internal\_test.go：辅助函数 \texttt{inCorpus()}}]
+func inCorpus(corpus []string, word string) bool {
+    for _, corpusWord := range corpus {
+        if corpusWord == word {
+            return true
+        }
+    }
+    return false
+}
+\end{gocode}
+
+前面，我们曾用到标准库的 \texttt{slices} 包及其 \texttt{Equal} 函数。该包还提供了 \texttt{Contains} 函数，其签名与我们的 \texttt{inCorpus} 非常相似。熟能生巧，把自己的小实现留在手边也无妨。借助这个小函数，现在可以加入一个测试，确保 \texttt{pickWord} 从输入切片中返回一个单词。
+
+\begin{gocode}[title={代码清单 5.37 corpus\_internal\_test.go：测试 \texttt{pickWord}}]
+func TestPickWord(t *testing.T) {
+    corpus := []string{"HELLO", "SALUT", "ПРИВЕТ", "ΧΑΙΡΕ"}
+    word := pickWord(corpus)
+
+    if !inCorpus(corpus, word) { #1
+        t.Errorf("expected a word in the corpus, got %q", word)
+    }
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 确认有关输出单词的一项事实
+\end{codeannotations}
+
+实现和测试覆盖都已完成，现在可以收尾了。还记得创建 \texttt{Game} 结构体时那个讨厌的硬编码答案吗？该用调用 \texttt{pickWord} 方法来替换它了，并把词库作为 \texttt{New()} 的参数传入。别忘了同时用 \texttt{maxAttempts} 更新它。
+
+我们希望 Gordle 能够独立工作，任何拥有单词列表的人都可以复用。因此，我们会在 \texttt{New} 中选择答案，而不是让外部世界提供答案。
+
+% SOURCE_PDF_PAGE: 135
+就连 \texttt{main} 函数也不知道隐藏的单词！不过，现在必须确保词库有效，也就是说，它至少要有一个单词。如果词库为空，\texttt{New} 函数就无法创建可玩的游戏，我们需要返回错误。这会改变 \texttt{New()} 函数的签名。
+
+现在我们也到了 \texttt{New()} 要做很多事的时候。它不仅创建 \texttt{Game}，还会初始化它。我们不会再给它增加职责，而应当考虑：也许是时候把 \texttt{New()} 拆成两个各负其责的函数了。目前，就最后再给 \texttt{New()} 函数锦上添花一次吧。
+
+\begin{gocode}[title={代码清单 5.38 game.go：更新 \texttt{New()}，加入词库}]
+// New 返回一个可用于 Play 的 Game 变量！
+func New(reader io.Reader, corpus []string, maxAttempts int) (*Game, error) {
+    if len(corpus) == 0 {
+        return nil, ErrCorpusIsEmpty
+    }
+
+    g := &Game{
+        reader: bufio.NewReader(playerInput),
+        solution: []rune(
+            strings.ToUpper(pickWord(corpus))), #1
+        maxAttempts: maxAttempts,
+    }
+
+    return g, nil
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 从词库中随机选出一个单词
+\end{codeannotations}
+
+现在一切就绪。克劳迪奥已经等了很久，该调整 \texttt{main} 函数中的调用，把键盘交给他了！
+
+\subsection{来玩吧！}
+
+游戏完成前只剩很少一点工作。\texttt{main} 函数中还有少量改动需要应用。我们要解析词库，并把它传给 Gordle 的 \texttt{New()} 函数。由于这个 \texttt{New()} 函数现在会返回错误，
+% SOURCE_PDF_PAGE: 136
+我们应该处理它。让我们把消息写到错误输出，然后用 \texttt{return} 离开 \texttt{main()} 函数。
+
+\begin{gocode}[title={代码清单 5.39 main.go：在 \texttt{main} 中调用 \texttt{readCorpus()}}]
+package main
+
+import (
+    "bufio"
+    "fmt"
+    "os"
+
+    "learngo-pockets/gordle/gordle"
+)
+
+const maxAttempts = 6
+
+func main() {
+    corpus, err := gordle.ReadCorpus("corpus/english.txt") #1
+    if err != nil {
+        _, _ = fmt.Fprintf(os.Stderr, "unable to read corpus: %s", err)
+        return
+    }
+
+    // 创建游戏。
+    g, err := gordle.New(bufio.NewReader(os.Stdin),
+        corpus, maxAttempts) #2
+    if err != nil {
+        _, _ = fmt.Fprintf(os.Stderr, "unable to start game: %s", err)
+        return
+    }
+
+    // 运行游戏！游戏结束时，它就会退出。
+    g.Play()
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 读取英语词库并取得单词列表
+\item 把解析后的词库传给 \texttt{Game} 结构体的 \texttt{New()} 构造函数
+\end{codeannotations}
+
+我们这边已经打够字了；该让克劳迪奥疯狂敲击这些按键，寻找 Gordle 的某个秘密单词了：
+
+% SOURCE_PDF_PAGE: 137
+\begin{shellcode}[]
+> go run main.go
+Welcome to Gordle!
+Enter a 5-character guess:
+ s a u n a
+(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)
+Enter a 5-character guess:
+ w a s t e
+(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketYellowCircle@*)
+Enter a 5-character guess:
+ h e l l o
+(*@\PocketGraySquare@*)(*@\PocketYellowCircle@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)
+Enter a 5-character guess:
+ t e r s e
+(*@\PocketGraySquare@*)(*@\PocketYellowCircle@*)(*@\PocketYellowCircle@*)(*@\PocketGraySquare@*)(*@\PocketYellowCircle@*)
+Enter a 5-character guess:
+ c r e p t
+(*@\PocketGraySquare@*)(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*)(*@\PocketGraySquare@*)(*@\PocketGraySquare@*)
+Enter a 5-character guess:
+ f r e e d
+(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*)(*@\PocketGreenHeart@*)
+(*@\PocketParty@*) You won! You found it in 6 attempt(s)! The word was: FREED.
+\end{shellcode}
+
+\section{rune 的局限}
+
+克劳迪奥玩得太开心了，于是想提交自己的单词列表。他想把 Gordle 分享给住在印度的朋友米塔莉。他用天城文字符写下一小组单词，以确保程序能按预期运行（天城文用于书写印地语，就像拉丁字符用于书写英语）。他写下的第一个词是“नमस्ते”，即 ``namaste''，意思是“你好”。它由四个字符组成，可是更新 \texttt{main} 函数并从新的 \texttt{hindi.txt} 文件读取后，克劳迪奥看到的提示却是 \texttt{Enter a 6-character guess:}。他很不高兴地回来找你。发生了什么？
+
+天城文与拉丁文字不同，它不是字母表，而是一种元音附标文字（abugida），简单来说，在这种系统中，元音会改变辅音。为了更好地理解天城文的工作方式，我们把“नमस्ते”（``namaste''）拆开，看看它的不同部分：
+
+% SOURCE_PDF_PAGE: 138
+\begin{itemize}
+\item न 读作 ``na''。
+\item म 读作 ``ma''。
+\item स्ते 读作 ``ste''，就像英语的 ``stay''。
+\end{itemize}
+
+单词的最后一部分，其实是字母 ``sa''（写作 स）去掉其中的 ``a'' 部分，再与 ``ta'' 部分（写作 त）组合而成。这里它实际上写作 ते，因为必须出现 ``e'' 音；这个音由元音符号 \emph{matra} 表示，也就是横线 \emph{shirorekhā} 上方一条向下延伸的竖线。
+
+这里的单词组合规则同样重要：尽管拼写成 न + म + स् + ते 也会发出相同的音，天城文规则却会把最后两个符号 ``s'' 和 ``te'' 合并成一个：स्ते，即 ``ste''。现在来看看 Go 如何处理字符串 \texttt{"नमस्ते"}，如下列代码所示。
+
+\begin{gocode}[title={代码清单 5.40 理解 \texttt{नमस्ते} 这个案例}]
+func main() {
+    s := "नमस्ते"
+    for _, r := range []rune(s) {
+        fmt.Print(string(r) + " ")
+    }
+}
+\end{gocode}
+
+\Needspace{5\baselineskip}
+运行这个小程序，会产生以下输出：
+
+\begin{shellcode}[]
+(*@{\PocketDevanagariFont न म स ् त े}@*)
+\end{shellcode}
+
+可以看到，Go 确实把这个字符串拆成了六个 rune。我们已经见过其中四个，也就是带有 \emph{shirorekhā} 的那些；它们在印地语中称为 \emph{swars}。另外两个有些费解，它们显示为带有装饰的虚线圆圈，称为附加符号（diacritic）。在天城文中，这是表示 \emph{matra} 的一种方式（\emph{matra} 包括元音，但并不限于元音）。附加符号是对已有字符的改变；
+% SOURCE_PDF_PAGE: 139
+它们不能独立存在。英语中也有一些附加符号，主要见于 \emph{déjà-vu} 或 \emph{señor} 之类的外来词：前一个词中元音上的重音符号离开所依附的元音就无法书写；波浪号也是如此，它需要落在一个字母上。
+
+正如所见，把字符串拆成 rune 时，Go 不会把附加符号 ् 与字符 स 合并。对 Go 来说，它们仍是两个不同的 rune。那么，卢西奥能做些什么来帮助克劳迪奥呢？遗憾的是，这正是 Go 语言原生 \texttt{rune} 类型所能支持的极限。不过，这也正是 \texttt{golang.org/x} 系列包存在的意义：扩展 Go 原生能力的边界。在这个案例中，\texttt{golang.org/x/text/unicode/norm} 包提供了一个可用于这类字符串的 \texttt{Iter} 类型。尽管名称如此，\texttt{norm.Iter} 所做的不只是迭代；它是用于规范化并组合 Unicode 字符的专门工具，确保这些字符被当作一个单元处理。再稍微修改一下代码，米塔莉也能玩 Gordle 了！
+
+\section{结论}
+
+终于，我们完成了目标！我们编写了一个命令行游戏，用户可以通过标准输入与它交互。游戏从包含单词的文件读取数据，随机选择一个单词，并让玩家猜这个词。每次尝试后，我们都会提供可视化反馈，帮助玩家逐步接近答案。无论发生什么，我们都努力为玩家打印清楚的消息，让他们不至于不知道下一步该做什么。
+
+\section*{小结}
+
+\begin{itemize}
+\item \texttt{switch/case} 语句比很长的 \texttt{if/else if/else} 语句序列可读得多。\texttt{switch}
+% SOURCE_PDF_PAGE: 140
+甚至可以替代 \texttt{if} 语句。如果你需要 \texttt{else} 语句，最好改用 \texttt{switch} 块。
+
+\item 命令行工具经常需要读取控制台输入。Go 提供了不同的做法；本章使用的是 \texttt{bufio.\allowbreak ReadLine} 方法，它逐行读取输入。
+
+\item 哨兵错误是创建领域错误的一种简单方式，这些错误可以导出，供其他包检查。它比用 \texttt{errors.New()} 或 \texttt{fmt.Errorf()} 创建导出错误的实现更简洁。要声明一种新的哨兵错误类型，应声明一个以字符串为底层类型的新类型（这样创建新错误很简单）。
+
+\item 把错误传播给调用者，是 Go 处理任何偏离顺利路径之事的方式。传播错误的函数，其签名中的最后一个返回值是 \texttt{error}。在这些函数的实现中，\texttt{fmt.Errorf("... \%w", ... err)} 是包装错误的默认方式。\texttt{\%w} 中的 \texttt{w} 代表 ``wrap''。
+
+\item 任何拥有签名为 \texttt{String() string} 的方法的结构体，都实现了 \texttt{fmt.Stringer} 接口。任何实现 \texttt{Stringer} 接口的结构体，都能被 \texttt{fmt.Print*} 函数漂亮地打印出来。
+
+\item \texttt{os} 包提供 \texttt{ReadFile} 函数，它把文件内容加载为字节切片。这个函数可用于纯文本文件、媒体文件、XML 或 HTML 格式的文件等。
+
+\item \texttt{slices} 包包含 \texttt{Equal} 或 \texttt{Contains} 等实用工具。如我们所见，针对特定用例实现这样的函数并不太复杂。
+
+\item Go 字符串既可以解析为字节切片，也可以解析为 rune 切片。
+% SOURCE_PDF_PAGE: 141
+遍历构成字符串的字符时，建议采用后者。使用 \texttt{[]rune(str)} 把字符串 \texttt{str} 转换为 rune 切片。不过，即使这种方案也不完美，并非总能奏效。首先检查你处理的语言，再选择最合适的库来解析文本。
+
+\item 某个特定类型的所有接收器都应该统一使用指针接收器或值接收器。只有结构体在内存中很小时，使用值接收器才有意义，因为调用方法会复制接收器。拿不准时，就使用指针接收器声明。
+
+\item 编写表驱动测试时，使用 \texttt{map[string]struct\{...\}} 是很常见的做法。映射的键（字符串）描述测试用例，值则是一个匿名结构体，包含该测试用例所需的字段。
+
+\item 随机数既可以通过 \texttt{math/rand} 包获得，也可以通过 \texttt{crypto/rand} 包获得。任何与安全、加密或密码学数据相关的内容都应使用 \texttt{crypto/rand} 包，而 \texttt{math/rand} 的使用成本更低。
+
+\item 使用随机数时，请确保使用 Go 1.20 或更新版本。否则，应显式调用 \texttt{rand.Seed()} 来设置种子。过去常用当前的纳秒数作为种子值，通过 \texttt{time.Now().Nanosecond()} 取得；但从 Go 1.20 起，不再需要手动为 \texttt{rand} 库设置种子。
+
+\item 从屏幕前退后一步，写伪代码，并绘制用箭头连接组件的图，对于帮助你看清全局、想象可能证明或推翻某种算法的棘手场景，都很有价值。
+\end{itemize}
+
+% SOURCE_PDF_PAGE: 142
+\chapter{货币转换器：围绕 HTTP 调用的 CLI}
+
+\textbf{本章内容}
+
+\begin{itemize}
+\item 编写命令行界面
+\item 向外部 URL 发起 HTTP 调用
+\item 为单元测试模拟 HTTP 调用
+\item 理解浮点精度错误
+\item 解析 XML 结构的字符串
+\item 检查错误类型
+\end{itemize}
+
+如今，成千上万的网站公开了可通过 HTTP 调用的实用 API。常见示例包括：用于自动化部署的著名开源系统 Kubernetes；天气预报服务；世界时钟；社交网络；BoardGameGeek 或互联网电影资料库（IMDb）这样的在线数据库；以及 WordPress 这样的内容管理器。其中一些还提供调用这些 API 的命令行工具。为什么？精美、可点击的界面固然很棒，但仍然非常慢。举个例子：我们在最喜欢的搜索引擎中查找一个句子时，仍要额外点击一下，才能访问第一个不是广告的链接，或者第一个尚未打开的链接。另一方面，终端 shell 允许我们操纵程序的输入和输出，甚至能把它们组合起来，从而减少所需的命令数，帮助我们把更多工作自动化。
+
+% SOURCE_PDF_PAGE: 143
+本章将创建一个可以转换金额的命令行界面（CLI）工具。我们先从宏观上审视工具要实现的目标，再开始定义主要概念：什么是货币，如何表示它？转换货币意味着什么？怎样取得所需汇率？输入和输出应该是什么？怎样解析输入？你将看到，处理浮点数时需要采取一些预防措施。
+
+\begin{warningbox}{警告}
+这里必须先作一项免责声明：这个项目是教学项目，不应当用于现实交易。
+\end{warningbox}
+
+\Needspace{14\baselineskip}
+本项目具有以下要求：
+
+\begin{itemize}
+\item 编写一个 CLI 工具，它应当：
+  \begin{itemize}
+  \item 接收两种货币和一个金额；
+  \item 返回换算后的金额；
+  \item 按给定货币的精度安全地舍入。
+  \end{itemize}
+\item 按 ISO-4217 标准提供货币。
+\end{itemize}
+
+本项目具有以下限制：
+
+\begin{itemize}
+\item 输入金额只能由数字和一个可选的小数点组成。以后可以扩展为支持空格、下划线或撇号。
+\item 只支持十进制货币（抱歉，阿里亚里和乌吉亚）。
+\end{itemize}
+
+下面是我们希望如何调用该工具的用法示例：
+
+\begin{shellcode}[]
+> change -from EUR -to USD 413.9
+\end{shellcode}
+
+我们期望程序返回类似 \texttt{427.66} 的值。
+
+% SOURCE_PDF_PAGE: 144
+\section{业务定义}
+
+构建软件的一种方法，是从业务定义开始。理解自己究竟想实现什么，有助于避免解决错问题。我们会使用的业务术语，在下面对场景的全局描述中以强调形式标出：我们需要一个命令行工具，它接收一笔\emph{金额}，该金额以其\emph{原始货币}中的某个\emph{数量}表示；然后，它把这笔金额\emph{换算}成不同的\emph{目标货币}并输出。
+
+由于我们想在两种货币之间换算一定金额，因此本节首先定义名为 \texttt{Currency} 和 \texttt{Amount} 的类型，然后导出一个以它们为输入的 \texttt{Convert} 函数。
+
+不过，在此之前，需要初始化一个新模块。为此，请创建文件夹，并按如下方式初始化：
+
+\begin{shellcode}[]
+> go mod init learngo-pockets/moneyconverter
+\end{shellcode}
+
+先从简单处开始：在项目根目录创建 \texttt{main.go} 文件，包名设为 \texttt{main}，再写上通常的 \texttt{func main()}。只要我们只有一个二进制文件，把 \texttt{main.go} 放在根目录就没问题。对于提供多个二进制文件的工具，\texttt{main} 函数通常放在 \texttt{cmd/\{binary\_name\}/main.go} 中。
+
+\subsection{转换货币}
+
+\texttt{main} 函数负责在终端中运行可执行文件、读取输入并写出输出，而大部分逻辑都会放在名为 \texttt{money} 的子包中。这个包涵盖的正是我们
+% SOURCE_PDF_PAGE: 145
+领域逻辑的核心。\texttt{main} 包负责调用这个 \texttt{money} 包。一般来说，可以想象这个包将来能够复用；例如，你也许会开始编写漂亮的 UI，但在真正知道需要什么之前，不要过度设计。
+
+现在创建一个名为 \texttt{money} 的文件夹，其中放一个文件，用来导出该包的转换器入口点，即 \texttt{Convert} 函数。我们可以开始编写 \texttt{convert.go} 的内容：它必须是一个导出函数。
+
+\begin{gocode}[title={代码清单 6.1 convert.go：转换器入口点的签名}]
+package money
+
+// Convert 应用汇率，把某个金额换算为目标货币。
+func Convert(amount Amount, to Currency) (Amount, error) {
+    return Amount{}, nil #1
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 暂时返回占位值
+\end{codeannotations}
+
+这两个参数应该不言自明。我们要把给定金额换算成货币 \texttt{to}。函数会返回一笔金额；如果出现问题，则返回错误。
+
+为了让项目能够编译，需要定义两个自定义类型：\texttt{Amount} 和 \texttt{Currency}。我们已经可以预见，它们会有一些方法，例如用于打印的 \texttt{String()}。因此，每种类型都值得单独建立一个文件，方便将来容纳各自的方法。
+
+\subsubsection*{货币类型}
+
+ISO-4217 标准为现实世界中使用的每种货币分配一个三字母代码，例如 USD 或 EUR。由于这会成为我们的输入，可以先使用该三字母代码定义 \texttt{Currency} 类型；它用一个类型为
+% SOURCE_PDF_PAGE: 146
+字符串的字段表示货币代码。在同一个包中创建 \texttt{currency.go} 文件，并加入下列结构体。
+
+\begin{gocode}[title={代码清单 6.2 currency.go：\texttt{Currency} 定义}]
+// Currency 定义货币代码。
+type Currency struct {
+    code string #1
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 使用货币的三字母代码
+\end{codeannotations}
+
+\subsubsection*{不可变性}
+
+\texttt{code} 字段是未导出的，对包外用户不可见。我们会继续构建所有类型，让它们保持不可变，也就是说，一经构造就不能改变。
+
+这样做是为了让包的用户（也就是我们）使用代码时更安全：如果我们有 10 欧元，它们不会仅仅因为调用了某个函数，就突然变成 19.56 德国马克。不可变性也让对象天然具备线程安全性。
+
+\subsubsection*{\texttt{Amount} 与 \texttt{Decimal} 结构体}
+
+这个工具要换算金额，因此我们需要表示一笔以给定货币计价、等待换算的金额。这正是 \texttt{Amount} 类型所需的信息：一个十进制值和一种货币。让我们在 \texttt{money} 包中创建 \texttt{amount.go} 文件，并添加下列结构体。
+
+% SOURCE_PDF_PAGE: 147
+\begin{gocode}[title={代码清单 6.3 amount.go：\texttt{Amount} 定义},breakable=false]
+// Amount 定义以给定 Currency 计价的一笔金额。
+type Amount struct {
+    quantity Decimal #1
+    currency Currency #2
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 对于 40.00 USD 的金额，存储 ``40.00''
+\item 对于 40.00 USD 的金额，存储 ``USD''
+\end{codeannotations}
+
+为什么 \texttt{quantity} 不直接用 \texttt{float}？首先，如果我们想给它附加一些方法，它就必须是自定义类型。其次，正如后面的“浮点数”一节将展示的，浮点数很危险。保存这个数有很多种可能方式；如果想为以后的优化留下空间，就需要把内部细节藏在自定义类型之后。
+
+我们还不知道怎样编写这些内部细节，暂时让它为空即可，如代码清单 6.4 所示。并非必须每个文件只放一个结构体，也不必按照其中的主要结构体给文件命名；不过，这是一种帮助维护者找到所需内容的好办法。
+
+\begin{gocode}[title={代码清单 6.4 decimal.go：\texttt{Decimal} 结构体}]
+// Decimal 能够存储一个浮点值。
+type Decimal struct {
+}
+\end{gocode}
+
+此时，项目树应该包含一个目录，总计五个 Go 文件：
+
+\begin{treebox}
+\PocketTreeLine{\textgreater{} tree}
+\PocketTreeLine{.}
+\PocketTreeLine{├── go.mod}
+\PocketTreeLine{├── main.go}
+\PocketTreeLine{└── money}
+\PocketTreeLine{\hspace*{4em}├── amount.go}
+\PocketTreeLine{\hspace*{4em}├── convert.go}
+\PocketTreeLine{\hspace*{4em}├── currency.go}
+\PocketTreeLine{\hspace*{4em}└── decimal.go}
+\end{treebox}
+
+现在，使用 \texttt{go build -o convert main.go} 命令应该能顺利编译一切。恭喜，我们已经定义了这个
+% SOURCE_PDF_PAGE: 148
+货币换算库的业务实体。在开始填充内容之前，先为它唯一的函数 \texttt{money.Convert} 编写一个测试。
+
+\subsubsection*{测试 \texttt{Convert}}
+
+你也许觉得，测试一个什么也不做的函数相当荒谬；但是，如果你写不出容易理解、容易维护的测试，那你的架构选择就走错了路。如果测试写起来一团糟，甚至在开始处理业务逻辑之前，就应重新思考代码组织方式。遗憾的是，易于测试并不能保证架构良好，否则这个世界早就更美好了。我们在这里选择使用验证函数，主要是为了教学。
+
+\subsubsection*{验证函数}
+
+第 2 章中，我们学过编写表驱动测试：定义一列测试用例，每个用例都是某个自定义结构体的一个实例。每种情况下，预期返回值直接位于结构体中。通常，你会看到一个函数返回“十进制值和错误”这一对结果。验证函数可以逐个用例确保返回结果有效。有时，你想深入检查返回值；另一些时候，则可能只想确保返回的错误符合预期。大多数情况下，没有必要完整检查返回值和错误，因为只会设置其中一个。
+
+验证函数是测试用例结构体的一个字段，它接收参数 \texttt{*testing.T} 以及检查所需的全部参数。这个办法把检查结果的逻辑集中起来，确保各测试用例保持一致。它不返回错误，而是一旦
+% SOURCE_PDF_PAGE: 149
+发生问题就直接令测试失败。对于我们的 \texttt{Convert} 函数，需要取得返回值和错误：
+
+\begin{gocode}[]
+tt := map[string]struct {
+    // 输入字段
+    validate func(t *testing.T, got money.Amount, err error)
+}{
+\end{gocode}
+
+等一下，那个字段真的是函数吗？没错！Go 允许定义许多类型的变量，其中就包括具有特定签名的函数。这在表驱动测试中特别有用，因为每个测试用例都可以拥有自己独特的验证逻辑。把函数直接存进测试用例结构体，就允许每个测试自行定义应怎样验证结果。例如，有些测试用例可能只需验证返回值，另一些则可能需要着重确保错误得到正确处理。每个测试用例使用不同函数，让你能够量身定制验证逻辑，同时不把主测试函数弄得杂乱。下面清单的测试用例展示了具体示例。
+
+% SOURCE_PDF_PAGE: 150
+\begin{gocode}[title={代码清单 6.5 convert\_test.go：检查设计选择的可测试性}]
+package money_test
+
+import (
+    "learngo-pockets/moneyconverter/money"
+    "reflect"
+    "testing"
+)
+
+func TestConvert(t *testing.T) {
+    tt := map[string]struct {
+        amount   money.Amount
+        to       money.Currency
+        validate func(t *testing.T,
+            got money.Amount, err error) #1
+    }{
+        "34.98 USD to EUR": {
+            amount: money.Amount{}, #2
+            to:     money.Currency{}, #2
+            validate: func(
+                t *testing.T,
+                got money.Amount,
+                err error) { #3
+                if err != nil {
+                    t.Errorf("expected no error, got %s", err.Error())
+                }
+                expected := money.Amount{} #4
+                if !reflect.DeepEqual(got, expected) {
+                    t.Errorf("expected %v, got %v", expected, got)
+                }
+            },
+        },
+    }
+    for name, tc := range tt {
+        t.Run(name, func(t *testing.T) {
+            got, err := money.Convert(tc.amount, tc.to)
+            tc.validate(t, got, err) #5
+        })
+    }
+}
+\end{gocode}
+
+\begin{codeannotations}
+\item 验证函数（参见 6.3.2 节）
+\item 在把真实数据放入这些结构体之前，测试名称只是虚构的。
+\item 测试用例专属的验证函数让下面的循环更短。
+\item 这个空值很快就会改变。
+\item 用一行代码验证测试。
+\end{codeannotations}
+
+悬念够久了！来编写这个 \texttt{Decimal}。
+
+% SOURCE_PDF_PAGE: 151
+\section{表示货币}
+
+应该怎样表示给定金额？例如，应当使用“86.33 加拿大元”，还是使用符合 ISO-4217 标准的“86.33 CAD”？首先想到的一个办法，是直接使用浮点数。遗憾的是，这种天真的做法存在两个问题。
+
+第一，我们没有阻止任何人声明 86.32456 CAD，而这在现实世界中没有意义。加拿大元的最小子单位是分，也就是一元的百分之一。任何小于 0.01 CAD 的部分，都必须以某种方式舍入。我们希望通过设计防止这种荒谬情况发生。这意味着，构建 \texttt{Decimal} 结构体的方式本身就应该使它永远不可能发生；不能依靠某些可能被我们不小心删除的保护措施，而应当让它从根本上无法出现。第二个问题与浮点数的精度有关，值得深入研究。
+
+\subsection{浮点数}
+
+在计算机编程中使用整数很直接，你只需注意它们会不会太大。使用浮点数则完全不同：只要用了浮点数，就始终应当假设得到的结果不会与你预期的完全相同。
+
+Go 采用的 IEEE-754 标准定义了浮点数算术的一种实现。Go 提供两种浮点数。\texttt{float32} 编码为 4 字节，\texttt{float64} 编码为 8 字节。由于 IEEE-754 的实现方式，这两种类型以
+% SOURCE_PDF_PAGE: 152
+十进制书写时都具有一定的精度，也就是保证正确的位数。
+
+对于 \texttt{float32}，精度只有六位。这意味着，在 \texttt{float32} 变量中，从第一个非零数字起算，超出有效精度的后续位数都可以放心视为乱码。下面是两个例子：
+
+\begin{itemize}
+\item \texttt{123\_456\_789}（大约一亿）：第一个非零数字是开头的 1，第七位数字是 7。如果执行 \texttt{fmt.Printf("\%.f", float32(123\_456\_789))}，会得到输出 \texttt{123456792}。可以看到，从 7 之后，正确数字就丢失了。
+
+\item \texttt{0.0123456789}：第一个非零数字，是处于百分位（小数点后第二位）的 1。如果执行 \texttt{fmt.Printf("\%.10f", float32(0.0123456789))}，会得到输出 \texttt{0.0123456791}。同样，只有前七个非零数字被安全编码，其余都丢失了。
+\end{itemize}
+
+使用 \texttt{float64} 变量时，精度是保证正确的 15 位数字。有了这么多位数，测量地球与月球之间的距离（约 384,400 千米）可以精确到微米。你也许觉得，这精确得过头，绝不可能不够精确；但有时确实不够：如果用 \texttt{float64} 表示地球质量，那么地球上所有黄金的重量也会淹没在这些如同乱码的低位数字中。
+
+在 IEEE-754 中，有些数字能够得到精确表示，即那些由 2 的幂的倒数组合而成的数字（在一定范围内）。例如，0.625 等于 $1/2 + 1/8$，打印出来是 \texttt{0.625000...}，5 后面的所有数字都是 0。但大多数分数无法写成 2 的幂的倒数之和，因此使用 \texttt{float32} 或 \texttt{float64} 时，大多数十进制数都会被错误表示。
+
+% SOURCE_PDF_PAGE: 153
+我们很早就会碰到 \texttt{float32} 的极限：下面这行代码不会打印预期的 \texttt{1.00000000}。虽然前七位数字是正确的（\texttt{0.9999...} 等于 1），但第八位并不正确：
+
+\begin{gocode}[]
+fmt.Printf("%.8f", float32(1)/float32(41)*float32(41))
+\end{gocode}
+
+有时，七位有效数字的精度已经足够。计算成绩平均值时，使用 \texttt{float32} 完全没问题。同样，如果在项目中使用 \texttt{float32}，一美元的百万分之一误差似乎也可以容忍，不是吗？但如果要换算的金额不是 1 美元，而是 1,000 万美元呢？这时，使用 \texttt{float32} 引入的误差已经会达到几美元。那还能接受吗？
+
+\subsection{回到货币}
+
+表示金额时，最好默认采用固定精度，除非你确切知道浮点数不会造成任何伤害。整数的算术运算精确到个位，只要整数没有大到溢出。如果想表示数十亿，已经接近 \texttt{uint32} 的最大值，也就是 $2^{32}$，约为 40 亿，那么 \texttt{big} 包提供了几种类型来表示非常大的数，例如分别用于整数和有理数的 \texttt{big.Int} 与 \texttt{big.Rat}。这里保持简单，使用普通整数；我们会接受自己并不是拥有 $10^{33}$ 级财富的富豪这一限制。
+
+谈到运算，有些事情可以想当然，另一些则不行。下面就来看看这些情况。
+
+% SOURCE_PDF_PAGE: 154
+\subsection{浮点数运算}
+
+浮点数的乘法或除法通常没有问题。问题会在浮点数相加或相减时开始出现。来看一个简单场景：某家银行用 \texttt{float32} 编码客户账户中的金额。一位非常、非常富有的客户决定用信用卡买冰激凌。冰激凌售价 1 欧元。当时，这位客户的账户里有一亿欧元。在银行一侧，会执行运算 \texttt{float32(100\_000\_000) - float32(1)}。客户惊讶地发现，账户里仍有一亿欧元，仿佛那笔 1 欧元付款从未发生。这是因为，在客户的银行账户数额中，到个位之前已经有 8 位有效数字；减去的 1 淹没在 \texttt{float32} 精度的噪声里，而这种精度只保证 7 位数字正确。
+
+程序员使用浮点数时最常犯的错误之一，是用 \texttt{==} 运算符比较浮点数。浮点数本来就没有得到正确表示，我们怎么能指望它与另一个同样表示不佳的数字相等？比较浮点数的安全方式，是把精度考虑在内：如果两个浮点数之间的差位于较大数的精度范围内，就应把它们视为相等；否则，应把它们视为不同。下面是一个简短的三角函数示例。别担心，我们不会深入太远。正弦函数在任何 $\pi$ 的倍数处都返回 0。让我们看看在 Golang 中调用 \texttt{math.Sin} 函数（它返回 \texttt{float64}）会是什么样子：
+
+\begin{gocode}[]
+fmt.Println(math.Sin(math.Pi))
+\end{gocode}
+
+它返回一个非常小、但显然不为零的值：\texttt{1.2246467991473515e-16}。任何数学家都会

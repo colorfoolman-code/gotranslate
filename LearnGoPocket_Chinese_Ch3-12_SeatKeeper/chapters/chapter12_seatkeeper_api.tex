@@ -1,0 +1,2436 @@
+% Learn Go with Pocket-Sized Projects — Chapter 12 continuous project
+\chapter{构建 SeatKeeper 预订 API}
+\label{ch:seatkeeper-api}
+
+\begin{infobox}{本章内容}
+\begin{itemize}
+  \item 把一个真实业务问题拆成可以逐步实现的 REST API
+  \item 使用领域类型表达活动、限时占座和可用席位
+  \item 在使用方定义小接口，并用构造函数显式注入依赖
+  \item 使用 Go 1.22 之后的 \texttt{http.ServeMux} 方法与路径模式
+  \item 用 PostgreSQL、显式 SQL 迁移、约束和索引持久化数据
+  \item 使用 fake repository、\texttt{httptest} 和集成测试验证不同边界
+  \item 通过 OpenAPI、Docker Compose 与 \texttt{curl} 交付可运行的第一版系统
+\end{itemize}
+\end{infobox}
+
+周三晚上，城里的 Go 社区照例在共享表格里登记周末工作坊。表格第一列是姓名，第二列是邮箱，第三列写“几个人”。这种办法已经用过很多次：便宜、直观，而且谁都会打开浏览器。只要活动不太热门，它看起来甚至像一个相当成熟的系统——成熟到没有任何人愿意主动去碰它。
+
+这次不同。组织者刚把“Go 并发实战”发到社交平台，十二个座位在几分钟内就被填满。有人不小心把整行拖动到了错误位置，有人复制粘贴时覆盖了别人的邮箱，还有一位热情的读者在人数栏里写了 \texttt{12}。手机上的表格缓存没有及时刷新，于是两名志愿者都向等待名单里的不同人承诺：“还有最后一个座位。”
+
+到了晚上，表格里共有十四位“已确认”的参加者，活动室里却只有十二把椅子。椅子当然不会因为单元格被涂成绿色，就突然学会有丝分裂。
+
+团队决定在周五之前做出一个后端。网页前端和命令行工具都要能调用它；组织者可以创建活动，参加者可以临时占住一个或多个座位，并查询占座结果。数据不能再依赖某个人的浏览器标签页，而要放进 PostgreSQL。更重要的是，这个项目不会在本章结束后被丢进练习目录：后面四章会继续让它面对并发、消息、后台任务和上线压力。
+
+这意味着我们第一次不再做一个真正意义上的 pocket-sized project。别紧张，我们仍然会用袖珍项目的方式前进：一次解决一个可以观察的问题，每一步都能编译、测试或发出请求。项目可以变大，学习步幅不必跟着变成跨栏。
+
+本章要实现的功能需求如下：
+
+\begin{itemize}
+  \item 组织者可以创建活动，指定名称、开始时间和容量；
+  \item 客户端可以列出活动，或按标识符读取一个活动；
+  \item 参加者可以为活动创建限时占座，每次最多占十个座位；
+  \item 客户端可以读取一笔占座；
+  \item 占座不能超过当前看到的可用席位；
+  \item 所有数据写入 PostgreSQL，并可通过迁移命令建立数据库结构。
+\end{itemize}
+
+还有一些技术要求：
+
+\begin{itemize}
+  \item API 使用 JSON 和清晰的 HTTP 状态码；
+  \item 业务规则不能直接埋在 HTTP handler 或 SQL 文件里；
+  \item 外部输入必须验证，未知 JSON 字段不能被悄悄忽略；
+  \item 测试应能在不启动 HTTP 服务器和 PostgreSQL 的情况下快速验证大部分规则；
+  \item 完整系统可以用 Docker Compose 启动；
+  \item API 契约写入 OpenAPI 文件，不能只存在于作者的脑海里。
+\end{itemize}
+
+在真正动手之前，也要写清楚\emph{本章不做什么}。我们暂时不实现登录、权限、付款、邮件、取消、确认、自动过期、实时推送，也不承诺并发请求下绝不超卖。最后这一点看起来尤其刺眼，但它是有意留下的章节边界：本章先建立一条在顺序请求下正确的完整路径，下一章再用并发测试把“最后一张票”问题当场抓住。
+
+\begin{warningbox}{本章的容量检查不是最终并发方案}
+第一版会先读取活动，再在应用层检查余量，最后写入新的 \texttt{reserved\_seats}。这对顺序请求有效，却存在典型的“先检查后使用”竞争窗口。请不要把本章 checkpoint 原样用于热门活动售票。下一章会用 PostgreSQL 条件更新、事务和幂等性修复它。
+\end{warningbox}
+
+\section{从袖珍程序走向连续系统}
+
+过去的项目通常在一章里完成：输入进入程序，经过若干函数，再得到输出。SeatKeeper 仍然遵循这条朴素路线，只是输入来自 HTTP，请求会经过业务用例，数据最终落入 PostgreSQL。先把整条路径画出来，后面的目录和接口就不会像从抽屉里随机滚出来的螺丝。
+
+\begin{figure}[tbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  node distance=9mm and 8mm,
+  box/.style={draw=PocketTeal,very thick,rounded corners=2mm,fill=PocketMist,minimum width=29mm,minimum height=12mm,align=center,font=\sffamily\small},
+  store/.style={cylinder,shape border rotate=90,draw=PocketCoral,very thick,fill=PocketCoral!7,minimum width=25mm,minimum height=16mm,align=center,font=\sffamily\small},
+  arr/.style={-{Latex[length=2.2mm]},very thick,draw=PocketTealDark}
+]
+  \node[box] (client) {浏览器或\\命令行客户端};
+  \node[box,right=of client] (http) {HTTP 适配器\\\texttt{internal/httpapi}};
+  \node[box,right=of http] (service) {应用服务\\\texttt{internal/booking}};
+  \node[box,right=of service] (repo) {PostgreSQL 适配器\\\texttt{internal/postgres}};
+  \node[store,right=of repo] (db) {PostgreSQL};
+  \draw[arr] (client) -- node[above,font=\scriptsize]{JSON/HTTP} (http);
+  \draw[arr] (http) -- node[above,font=\scriptsize]{领域输入} (service);
+  \draw[arr] (service) -- node[above,font=\scriptsize]{小接口} (repo);
+  \draw[arr] (repo) -- node[above,font=\scriptsize]{SQL} (db);
+  \draw[arr,dashed] (db.south) to[bend right=24] node[below,font=\scriptsize]{结果逐层返回} (client.south);
+\end{tikzpicture}%
+}
+\caption{SeatKeeper 第一版请求路径}
+\label{fig:seatkeeper-first-slice}
+\end{figure}
+
+图 \ref{fig:seatkeeper-first-slice} 中最值得注意的不是方框数量，而是依赖方向。HTTP 层知道怎样解码 JSON，却不知道 SQL；PostgreSQL 层知道表和列，却不知道 HTTP 状态码；中间的应用服务只使用领域类型和一个小型 repository 接口。这样做不是为了把五个文件夹摆得像企业架构图，而是为了让每一层可以在自己的边界上测试。
+
+假如把所有逻辑都写进一个 handler，初版当然可能更短：解析 JSON，执行三条 SQL，再写响应。可是当下一章要改变容量更新算法，后面还要增加消息和后台任务时，handler 会迅速变成一个既懂 HTTP、又懂事务、还兼职做业务经理的万能函数。万能函数通常只在一件事上很万能：让后来的人不敢修改它。
+
+\subsection{先做一个单体，而不是微服务动物园}
+
+课程设计最终会把通知拆成独立服务，也会加入 Outbox、消息代理和 worker。但本章仍然只运行两个命令：数据库迁移器和 booking API。所有业务代码位于同一个 Go 模块中，使用同一个 PostgreSQL schema。
+
+这是一个有意的选择。微服务不是“目录比较多”的同义词，也不是项目显得专业时必须佩戴的胸针。只有当独立部署、数据所有权和故障隔离真正解决问题时，拆分才有意义。现在我们最需要的是一条端到端可工作的路径，而不是先花两天给空服务写健康检查。
+
+\begin{tipbox}{先建立竖切面}
+所谓最小竖切面，是让一个真实请求穿过输入、用例、存储和输出。例如，“创建活动”会先于“把所有 repository 方法写完”。这样每完成一个阶段，都有可以运行或测试的行为，而不是得到一堆还没有调用者的抽象。
+\end{tipbox}
+
+\subsection{项目目录}
+
+创建一个空目录并初始化模块：
+
+\begin{shellcode}[title={初始化 SeatKeeper 模块}]
+> mkdir chapter12-seatkeeper
+> cd chapter12-seatkeeper
+> go mod init example.com/seatkeeper
+go: creating new go.mod: module example.com/seatkeeper
+\end{shellcode}
+\color{PocketInk}
+
+本章结束时，核心目录如下。代码包还包含 Dockerfile、Compose、脚本和完整 OpenAPI 文件；这里先看应用结构。
+
+\begin{treebox}
+\PocketTreeLine{chapter12-seatkeeper/}
+\PocketTreeLine{├── api/}
+\PocketTreeLine{│   └── openapi.yaml}
+\PocketTreeLine{├── cmd/}
+\PocketTreeLine{│   ├── migrate/}
+\PocketTreeLine{│   │   └── main.go}
+\PocketTreeLine{│   └── seatkeeper-api/}
+\PocketTreeLine{│       └── main.go}
+\PocketTreeLine{├── internal/}
+\PocketTreeLine{│   ├── booking/}
+\PocketTreeLine{│   ├── httpapi/}
+\PocketTreeLine{│   ├── pgdriver/}
+\PocketTreeLine{│   ├── platform/migrate/}
+\PocketTreeLine{│   └── postgres/}
+\PocketTreeLine{├── migrations/}
+\PocketTreeLine{│   ├── 000001\_initial.sql}
+\PocketTreeLine{│   └── embed.go}
+\PocketTreeLine{├── scripts/demo.sh}
+\PocketTreeLine{├── docker-compose.yml}
+\PocketTreeLine{├── Dockerfile}
+\PocketTreeLine{└── Makefile}
+\end{treebox}
+
+\texttt{cmd} 下的每个目录编译成一个可执行程序；\texttt{internal} 利用 Go 的可见性规则，阻止模块外部直接导入这些实现细节；\texttt{migrations} 保存数据库结构变化；\texttt{api} 保存给人和工具阅读的外部契约。
+
+注意，我们没有创建 \texttt{utils}、\texttt{common} 或 \texttt{helpers}。这些名字并不说明代码为何存在，往往会像厨房里写着“杂物”的抽屉一样越塞越满。代码应靠职责找到住所：解析标识符属于领域包，JSON 响应属于 HTTP 适配器，SQL 错误翻译属于 PostgreSQL 适配器。
+
+\section{先定义 API 的外部形状}
+
+在写结构体之前，先站到客户端一边。客户端关心的是：该向哪个 URL 发送什么方法和数据，成功时得到什么，失败时怎样判断原因。这样一套可观察约定就是 API 契约。
+
+SeatKeeper 第一版提供以下端点：
+
+\begin{table}[tbp]
+\centering
+\caption{SeatKeeper 第 12 章端点}
+\label{tab:seatkeeper-endpoints}
+\begin{tabularx}{\textwidth}{>{\ttfamily}l >{\ttfamily}Y Y}
+\toprule
+方法 & 路径 & 用途 \\
+\midrule
+GET & /healthz & 判断进程是否正在提供 HTTP 服务 \\
+POST & /v1/events & 创建一个活动 \\
+GET & /v1/events & 列出活动，可用 \texttt{limit} 限制数量 \\
+GET & /v1/events/\{eventID\} & 读取一个活动 \\
+POST & /v1/events/\{eventID\}/reservations & 为活动创建限时占座 \\
+GET & /v1/reservations/\{reservationID\} & 读取一笔占座 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+路径中的 \texttt{v1} 是 API 版本前缀。它不意味着我们已经知道未来所有版本会怎样变化，只是避免某天必须在同一夜里同时修改服务器和所有客户端。资源名使用复数名词，HTTP 方法表达动作：\texttt{POST /v1/events} 创建活动，\texttt{GET /v1/events/...} 读取活动。我们没有设计 \texttt{/createEvent} 之类的动词路径，因为 HTTP 方法已经承担了这部分语义。
+
+\subsection{创建活动的请求与响应}
+
+客户端创建活动时发送一个 JSON 对象：
+
+\begin{jsoncode}[title={代码清单 12.1 创建活动的 JSON 请求}]
+{
+  "name": "Go Concurrency Lab",
+  "starts_at": "2026-10-10T09:30:00Z",
+  "capacity": 12
+}
+\end{jsoncode}
+
+成功后返回 \texttt{201 Created}，并在 \texttt{Location} 响应头里给出新资源路径。响应体包含服务器生成的字段：
+
+\begin{jsoncode}[title={代码清单 12.2 创建活动的 JSON 响应}]
+{
+  "id": "7b711d43-2bc1-43a7-9eb0-8d4be4d2d5ae",
+  "name": "Go Concurrency Lab",
+  "starts_at": "2026-10-10T09:30:00Z",
+  "capacity": 12,
+  "reserved_seats": 0,
+  "created_at": "2026-10-03T10:00:00Z",
+  "available_seats": 12
+}
+\end{jsoncode}
+
+\texttt{reserved\_seats} 是持久化状态，\texttt{available\_seats} 则可以由容量减去已占席位得到。为什么还要返回后者？因为 API 应优先表达客户端真正需要的概念。让每个客户端都重复写减法并不困难，但返回计算结果可以使契约更清楚，也为以后改变库存含义留出一个统一入口。
+
+\subsection{创建占座}
+
+占座属于某个活动，所以活动标识符放在路径里。请求体只包含这次操作需要的数据：
+
+\begin{jsoncode}[title={代码清单 12.3 创建占座的 JSON 请求}]
+{
+  "customer_name": "Ada Lovelace",
+  "customer_email": "ada@example.com",
+  "seats": 2
+}
+\end{jsoncode}
+
+成功响应仍然是 \texttt{201 Created}：
+
+\begin{jsoncode}[title={代码清单 12.4 占座响应}]
+{
+  "id": "7fd36b20-2a75-4b79-9464-cd463ea83434",
+  "event_id": "7b711d43-2bc1-43a7-9eb0-8d4be4d2d5ae",
+  "customer_name": "Ada Lovelace",
+  "customer_email": "ada@example.com",
+  "seats": 2,
+  "status": "held",
+  "expires_at": "2026-10-03T10:10:00Z",
+  "created_at": "2026-10-03T10:00:00Z"
+}
+\end{jsoncode}
+
+本章只有 \texttt{held} 状态。即使只有一种状态，我们仍然把它建模为字段，因为后续章节会增加确认、取消和过期。现在先把“占座是一种有生命周期的资源”写进契约，胜过将来再从布尔值 \texttt{is\_confirmed} 里艰难长出状态机。
+
+\subsection{统一错误包络}
+
+API 失败时也应该保持可预测形状。例如，请求占二十个座位会得到 \texttt{422 Unprocessable Entity}：
+
+\begin{jsoncode}[title={代码清单 12.5 字段验证错误}]
+{
+  "error": {
+    "code": "validation_error",
+    "message": "request validation failed",
+    "fields": {
+      "seats": "must be between 1 and 10"
+    }
+  }
+}
+\end{jsoncode}
+
+稳定的机器码 \texttt{code} 供客户端分支判断，人类可读的 \texttt{message} 用于日志或简单界面，\texttt{fields} 则把错误定位到输入字段。不要让客户端解析一句英文里有没有“10”来猜错因；那不是 API，那是文字冒险游戏。
+
+本章使用的主要状态码如下：
+
+\begin{table}[tbp]
+\centering
+\caption{主要 HTTP 状态码}
+\begin{tabularx}{\textwidth}{>{\ttfamily}l Y}
+\toprule
+状态码 & 含义 \\
+\midrule
+200 OK & 成功读取资源或列表 \\
+201 Created & 成功创建活动或占座，并设置 \texttt{Location} \\
+400 Bad Request & JSON 无法解码、出现未知字段或有多个顶层对象 \\
+404 Not Found & 标识符格式无效，或资源不存在 \\
+409 Conflict & 活动已经开始、席位不足，或数据与现有状态冲突 \\
+422 Unprocessable Entity & JSON 语法正确，但字段不满足业务输入规则 \\
+500 Internal Server Error & 未预期的内部失败，不向客户端泄露数据库细节 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{infobox}{为什么无效字段使用 422}
+\texttt{400} 表示服务器无法把请求理解为预期 JSON；\texttt{422} 表示 JSON 已经被理解，但字段值不符合规则。例如 \texttt{"capacity": 0} 是合法 JSON，却不是合法活动容量。状态码选择并非宇宙真理，重要的是在契约、实现和文档中保持一致。
+\end{infobox}
+
+API 的完整定义放在 \path{api/openapi.yaml}。我们不会在正文里打印整个文件，而会在完成实现后抽查它是否与 handler 一致。先有这张外部地图，接下来可以进入系统内部。
+
+\section{用领域类型说清楚问题}
+
+HTTP 契约告诉外界系统怎样使用 SeatKeeper，领域包则负责回答另一组问题：什么是活动？什么是占座？哪些状态和数值有意义？这些规则应该在不知道 JSON、路由和数据库列名的情况下也能成立。
+
+在 \path{internal/booking/domain.go} 中先定义本章需要的常量和状态：
+
+\begin{gocode}[title={代码清单 12.6 \texttt{domain.go}：常量与占座状态}]
+const (
+    MaxEventCapacity = 1_000
+    MaxSeatsPerHold  = 10
+    DefaultHoldTime  = 10 * time.Minute
+)
+
+// ReservationStatus describes the small state machine
+// available in chapter 12.
+type ReservationStatus string
+
+const (
+    ReservationHeld ReservationStatus = "held"
+)
+\end{gocode}
+
+这里没有用裸字符串到处写 \texttt{"held"}，而是创建了自定义类型 \texttt{ReservationStatus}。Go 的自定义类型仍然很轻量，却能表达“这个字符串不是任意文本，而是占座状态”。以后新增状态时，搜索和重构也有明确入口。
+
+三个常量同时服务于实现和测试。容量上限为 1000，并不是 PostgreSQL 的整数存不下更大的数，而是当前产品边界；单次最多十个座位，可以拦住共享表格里那位热情过头的参加者；默认占座十分钟，为后续自动过期准备了时间语义。
+
+\subsection{活动与可用席位}
+
+接着定义 \texttt{Event}：
+
+\begin{gocode}[title={代码清单 12.7 \texttt{domain.go}：活动实体}]
+// Event is a bookable workshop, meetup, or conference session.
+type Event struct {
+    ID            ID        `json:"id"`
+    Name          string    `json:"name"`
+    StartsAt      time.Time `json:"starts_at"`
+    Capacity      int       `json:"capacity"`
+    ReservedSeats int       `json:"reserved_seats"`
+    CreatedAt     time.Time `json:"created_at"`
+}
+
+// AvailableSeats reports the number of seats not currently held.
+func (e Event) AvailableSeats() int {
+    return e.Capacity - e.ReservedSeats
+}
+\end{gocode}
+
+\texttt{Event} 使用值类型字段。\texttt{time.Time} 明确表达时间，而不是把日期留作格式不明的字符串；\texttt{ID} 是我们马上会定义的标识符类型；\texttt{ReservedSeats} 保存当前占用数。可用席位不另存一列，而由 \texttt{AvailableSeats} 计算得到。
+
+为什么不同时在数据库里存 \texttt{available\_seats}？因为那会让同一事实出现两份需要同步的表示：
+
+\begin{plaincode}[]
+available_seats = capacity - reserved_seats
+\end{plaincode}
+
+一旦某次更新只改了其中一列，数据就会开始互相争论。能可靠计算的值通常不必持久化。API 响应仍然可以把它展示出来，那是表示层的便利，不是第二份真相。
+
+这个方法还把一个核心不变量暴露了出来：
+
+\begin{plaincode}[]
+0 <= reserved_seats <= capacity
+\end{plaincode}
+
+本章的 SQL 会保证 \texttt{reserved\_seats} 不小于零，却故意还没有在数据库层完整保证它不超过容量。应用服务会在顺序请求下检查余量；并发情况下的数据库级保护留到下一章。技术书有时需要把一座桥分两次修，但应当在第一块临时路牌上把限速写大一点。
+
+\subsection{限时占座}
+
+占座包含参加者、席位数、状态和过期时间：
+
+\begin{gocode}[title={代码清单 12.8 \texttt{domain.go}：占座实体与用例输入}]
+// Reservation represents a temporary seat hold.
+type Reservation struct {
+    ID            ID                `json:"id"`
+    EventID       ID                `json:"event_id"`
+    CustomerName  string            `json:"customer_name"`
+    CustomerEmail string            `json:"customer_email"`
+    Seats         int               `json:"seats"`
+    Status        ReservationStatus `json:"status"`
+    ExpiresAt     time.Time         `json:"expires_at"`
+    CreatedAt     time.Time         `json:"created_at"`
+}
+
+type CreateEventInput struct {
+    Name     string
+    StartsAt time.Time
+    Capacity int
+}
+
+type CreateReservationInput struct {
+    EventID       ID
+    CustomerName  string
+    CustomerEmail string
+    Seats         int
+}
+\end{gocode}
+
+实体与用例输入为什么分开？创建活动时，客户端不能决定标识符、创建时间或已占席位；创建占座时，也不能随意指定状态和过期时间。这些字段都由服务器控制。若让 handler 直接构造完整实体，外部输入和服务器控制字段很容易混在一起。
+
+输入结构没有 JSON 标签，因为它们不属于 HTTP。HTTP 适配器会拥有自己的请求结构，再把数据转换成领域输入。这样将来即使增加 gRPC 或命令行入口，也不需要让领域层知道每种传输格式。
+
+\begin{tipbox}{区分“传输对象”和“领域输入”}
+两个结构字段看起来相同，并不代表它们承担相同职责。HTTP 请求结构负责 JSON 名称和解码；领域输入负责描述用例真正需要的信息。早期项目可以合并它们，但当输入来源增加、服务器生成字段变多或验证规则变复杂时，分开通常更清楚。
+\end{tipbox}
+
+\subsection{生成和解析标识符}
+
+API 使用 UUID 形式的标识符。完整代码包没有依赖第三方 UUID 模块，而是用标准库的 \texttt{crypto/rand} 生成 16 个随机字节，再设置 UUID 第 4 版的版本位和变体位。核心代码如下：
+
+\begin{gocode}[title={代码清单 12.9 \texttt{id.go}：生成 UUID 形式的 ID}]
+type ID string
+
+func NewID() (ID, error) {
+    var raw [16]byte
+    if _, err := rand.Read(raw[:]); err != nil {
+        return "", fmt.Errorf("generate id: %w", err)
+    }
+
+    raw[6] = (raw[6] & 0x0f) | 0x40 // version 4
+    raw[8] = (raw[8] & 0x3f) | 0x80 // RFC variant
+
+    buf := make([]byte, 36)
+    hex.Encode(buf[0:8], raw[0:4])
+    buf[8] = '-'
+    hex.Encode(buf[9:13], raw[4:6])
+    // The remaining groups are encoded in the same way.
+    return ID(buf), nil
+}
+\end{gocode}
+
+正文省略了后面三个分组的重复编码，完整函数位于代码包。这里更重要的是函数返回 \texttt{(ID, error)}。随机源理论上可能失败，业务服务不应假装这件事不存在。Go 的错误处理不要求每个错误都写一篇悼词，但要求它们有返回路径。
+
+读取 URL 中的标识符时，需要先验证文本形式。\texttt{ParseID} 检查长度、四个连字符位置，并把剩余 32 个十六进制字符解码一次：
+
+\begin{gocode}[title={代码清单 12.10 \texttt{id.go}：解析客户端标识符}]
+func ParseID(value string) (ID, error) {
+    if len(value) != 36 || value[8] != '-' ||
+        value[13] != '-' || value[18] != '-' || value[23] != '-' {
+        return "", fmt.Errorf("invalid id %q", value)
+    }
+
+    compact := make([]byte, 0, 32)
+    for i := range value {
+        if value[i] != '-' {
+            compact = append(compact, value[i])
+        }
+    }
+    if _, err := hex.Decode(make([]byte, 16), compact); err != nil {
+        return "", fmt.Errorf("invalid id %q: %w", value, err)
+    }
+    return ID(value), nil
+}
+\end{gocode}
+
+这个解析器只验证 API 接受的文字形状，并不查询数据库。无效形状和数据库中不存在的合法 UUID 最终都会对外表现为 \texttt{404}，避免客户端从错误细节里得到不必要的区别。
+
+\subsection{先为标识符写一个小测试}
+
+领域层测试速度最快，适合马上建立反馈。\texttt{NewID} 的测试不去猜随机值，而验证稳定性质：长度、连字符、版本字符和可解析性。
+
+\begin{gocode}[title={代码清单 12.11 \texttt{id\_test.go}：验证 ID 的性质}]
+func TestNewID(t *testing.T) {
+    id, err := NewID()
+    if err != nil {
+        t.Fatal(err)
+    }
+    text := string(id)
+    if len(text) != 36 {
+        t.Fatalf("ID length = %d, want 36", len(text))
+    }
+    if text[14] != '4' {
+        t.Fatalf("UUID version = %q, want 4", text[14])
+    }
+    if _, err := ParseID(text); err != nil {
+        t.Fatalf("ParseID(%q): %v", text, err)
+    }
+}
+\end{gocode}
+
+运行领域测试：
+
+\begin{shellcode}[]
+> go test ./internal/booking
+ok      example.com/seatkeeper/internal/booking   0.00s
+\end{shellcode}
+\color{PocketInk}
+
+具体耗时会因机器而异。我们关注的是测试可以独立于网络和数据库运行；这将成为后续重构时最便宜的一层保护。
+
+\section{把输入错误建模成可以分类的值}
+
+客户端会犯错，数据库会失败，程序也会遇到意外。若所有情况都返回一条普通字符串，HTTP 层只能检查字符串内容决定状态码。字符串适合给人读，不适合做稳定分类。
+
+先定义几项哨兵错误（sentinel error）：
+
+\begin{gocode}[title={代码清单 12.12 \texttt{errors.go}：领域错误}]
+var (
+    ErrNotFound         = errors.New("not found")
+    ErrNoSeatsAvailable = errors.New("not enough seats available")
+    ErrEventStarted     = errors.New("event has already started")
+    ErrConflict         = errors.New("conflict")
+)
+
+type ValidationError struct {
+    Fields map[string]string
+}
+\end{gocode}
+
+哨兵错误适合表达不需要附带很多字段的类别；\texttt{ValidationError} 则需要保存每个字段的问题，因此使用结构体类型。它实现 \texttt{error} 接口后，调用方可以通过 \texttt{errors.As} 取出 \texttt{Fields}：
+
+\begin{gocode}[]
+func (e ValidationError) Error() string {
+    if len(e.Fields) == 0 {
+        return "validation failed"
+    }
+    // Sort keys so logs and tests remain deterministic.
+    keys := make([]string, 0, len(e.Fields))
+    for key := range e.Fields {
+        keys = append(keys, key)
+    }
+    sort.Strings(keys)
+    // Build: validation failed: capacity: ...; name: ...
+    // Full implementation is included in the code bundle.
+    return "validation failed: " + strings.Join(parts, "; ")
+}
+\end{gocode}
+
+Go 的 map 迭代顺序不保证稳定，所以错误文本先排序键。HTTP 响应本身把字段写成 JSON 对象，不依赖顺序；但稳定字符串让日志和测试更容易阅读。这里不是为了讨好快照测试，而是避免同一个错误今天先说名字、明天先说容量，像一位情绪不稳定的表单管理员。
+
+\subsection{活动验证规则}
+
+活动验证集中在一个未导出函数中：
+
+\begin{gocode}[title={代码清单 12.13 \texttt{service.go}：验证活动输入}]
+func validateEvent(input CreateEventInput, now time.Time) error {
+    fields := map[string]string{}
+
+    if length := len([]rune(input.Name)); length < 3 || length > 120 {
+        fields["name"] = "must contain 3 to 120 characters"
+    }
+    if input.StartsAt.IsZero() ||
+        input.StartsAt.Before(now.Add(15*time.Minute)) {
+        fields["starts_at"] = "must be at least 15 minutes in the future"
+    }
+    if input.Capacity < 1 || input.Capacity > MaxEventCapacity {
+        fields["capacity"] = "must be between 1 and 1000"
+    }
+    if len(fields) > 0 {
+        return ValidationError{Fields: fields}
+    }
+    return nil
+}
+\end{gocode}
+
+名称长度使用 \texttt{[]rune} 而不是 \texttt{len(string)}。后者计算 UTF-8 字节数；一个中文字符通常占多个字节。用户看到的是字符，不是编码字节，所以字段长度规则应尽量符合用户感知。
+
+开始时间必须至少晚于当前时间十五分钟。这既拦住过去时间，也给组织者留出一个最小发布窗口。\texttt{now} 作为参数传入，而不是在验证函数内部直接调用 \texttt{time.Now()}；这样测试可以固定时钟。
+
+所有字段都检查完以后才返回错误，因此客户端一次就能看到多个问题。逐个提交、逐个弹错的表单体验，通常只会让人怀疑服务器在玩“猜下一个错误”的游戏。
+
+\subsection{占座验证规则}
+
+占座验证还会规范化姓名和邮箱：姓名去掉两端空白，邮箱去空白并转成小写。验证本身如下：
+
+\begin{gocode}[title={代码清单 12.14 \texttt{service.go}：验证占座输入}]
+func validateReservation(input CreateReservationInput) error {
+    fields := map[string]string{}
+    if input.EventID == "" {
+        fields["event_id"] = "is required"
+    }
+    if length := len([]rune(input.CustomerName));
+        length < 2 || length > 120 {
+        fields["customer_name"] = "must contain 2 to 120 characters"
+    }
+    address, err := mail.ParseAddress(input.CustomerEmail)
+    if err != nil || !strings.Contains(address.Address, "@") {
+        fields["customer_email"] = "must be a valid email address"
+    }
+    if input.Seats < 1 || input.Seats > MaxSeatsPerHold {
+        fields["seats"] = "must be between 1 and 10"
+    }
+    if len(fields) > 0 {
+        return ValidationError{Fields: fields}
+    }
+    return nil
+}
+\end{gocode}
+
+\texttt{net/mail.ParseAddress} 能处理比简单正则更合理的地址形式，但它也不是邮箱是否真实存在的证明。验证只能说明文本像一个地址，不能说明收件箱存在，更不能保证对方愿意收到活动邮件。真正发送通知要到后续章节再处理。
+
+\begin{infobox}{验证应该出现在哪些层？}
+同一规则可以在不同边界重复出现，但目的不同。应用层验证为了给客户端清晰反馈；数据库约束保护数据不变量，即使写入来自别的程序也不能越界；OpenAPI schema 帮助文档和客户端工具提前发现问题。不要把数据库约束删掉，只因为 handler 已经检查过一次。
+\end{infobox}
+
+\subsection{表驱动验证测试}
+
+验证规则组合很多，表驱动测试很适合表达“一组输入都应得到同类结果”。下面测试三个活动错误：
+
+\begin{gocode}[title={代码清单 12.15 \texttt{service\_test.go}：表驱动验证测试}]
+func TestCreateEventValidation(t *testing.T) {
+    t.Parallel()
+
+    tests := map[string]CreateEventInput{
+        "short name": {
+            Name: "Go", StartsAt: fixedNow.Add(time.Hour), Capacity: 10,
+        },
+        "event too soon": {
+            Name: "Go meetup",
+            StartsAt: fixedNow.Add(5 * time.Minute), Capacity: 10,
+        },
+        "zero capacity": {
+            Name: "Go meetup",
+            StartsAt: fixedNow.Add(time.Hour), Capacity: 0,
+        },
+    }
+
+    for name, input := range tests {
+        name, input := name, input
+        t.Run(name, func(t *testing.T) {
+            t.Parallel()
+            service := NewService(newFakeRepository(),
+                WithClock(func() time.Time { return fixedNow }))
+            _, err := service.CreateEvent(context.Background(), input)
+            var validationErr ValidationError
+            if !errors.As(err, &validationErr) {
+                t.Fatalf("error = %v, want ValidationError", err)
+            }
+        })
+    }
+}
+\end{gocode}
+
+每个子测试只关心错误类别，具体字段映射可以在更精细的测试里检查。\texttt{errors.As} 即使错误被 \texttt{fmt.Errorf("...: \%w", err)} 包装也能找到目标类型，这正是领域层可以增加上下文、适配器仍能分类的原因。
+
+循环中的 \texttt{name, input := name, input} 为并行子测试创建本轮变量副本。较新的 Go 版本已经改善了循环变量语义，但这行仍清楚表达“每个闭包拥有自己的值”，也让代码对不同工具链更稳妥。
+
+\section{用应用服务组织用例}
+
+领域类型说明“数据是什么”，应用服务（application service）负责说明“一个请求要按什么顺序完成”。它不处理 JSON，也不写 SQL；它验证输入、读取必要状态、执行规则，再通过 repository 持久化结果。
+
+先从服务依赖的最小接口开始：
+
+\begin{gocode}[title={代码清单 12.16 \texttt{ports.go}：服务使用的 repository 接口}]
+type Repository interface {
+    CreateEvent(context.Context, Event) error
+    ListEvents(context.Context, int) ([]Event, error)
+    EventByID(context.Context, ID) (Event, error)
+    CreateReservation(context.Context, Reservation, int) error
+    ReservationByID(context.Context, ID) (Reservation, error)
+}
+\end{gocode}
+
+接口放在 \path{internal/booking}，也就是使用它的一方，而不是放在 PostgreSQL 包里。这体现了一个重要的 Go 习惯：接口描述消费者需要什么，而不是生产者能做什么。PostgreSQL 适配器稍后只需碰巧实现这些方法；测试 fake 也实现同一个接口。
+
+接口只有五个方法，不暴露 \texttt{Begin}、\texttt{Commit}、\texttt{Query} 或“万能保存”。应用服务不该知道 repository 使用 SQL、内存 map 还是一只非常勤奋的信鸽。它只需要完成用例的能力。
+
+你也许会注意到 \texttt{CreateReservation} 同时接收占座和新的已占席位数。这是本章第一版的折中：服务先读取活动并计算新值，存储适配器再在一个数据库事务里插入占座并更新活动。下一章会改变这个方法，因为容量竞争必须由数据库原子地决定。现在先不要为未来接口设计十七个泛型参数；让下一章的失败测试给重构提供理由。
+
+\subsection{构造服务及可替换依赖}
+
+\texttt{Service} 保存 repository、时钟、ID 生成器和占座时长：
+
+\begin{gocode}[title={代码清单 12.17 \texttt{service.go}：服务与函数式选项}]
+type Service struct {
+    repo         Repository
+    now          func() time.Time
+    newID        func() (ID, error)
+    holdDuration time.Duration
+}
+
+type Option func(*Service)
+
+func WithClock(now func() time.Time) Option {
+    return func(s *Service) { s.now = now }
+}
+
+func WithIDGenerator(newID func() (ID, error)) Option {
+    return func(s *Service) { s.newID = newID }
+}
+
+func WithHoldDuration(duration time.Duration) Option {
+    return func(s *Service) { s.holdDuration = duration }
+}
+\end{gocode}
+
+生产代码使用真实时钟和随机 ID；测试希望时间和标识符完全确定。与其在测试里等待十分钟，或断言“时间大概在现在附近”，不如把这两个不稳定来源变成函数依赖。
+
+函数式选项（functional options）在前面的日志库项目中已经出现过。这里它们让构造函数保持一个必需参数 \texttt{repo}，而可选测试控制点仍有合理默认值：
+
+\begin{gocode}[]
+func NewService(repo Repository, options ...Option) *Service {
+    s := &Service{
+        repo:         repo,
+        now:          time.Now,
+        newID:        NewID,
+        holdDuration: DefaultHoldTime,
+    }
+    for _, option := range options {
+        option(s)
+    }
+    return s
+}
+\end{gocode}
+
+为什么不把 \texttt{context.Context} 存进服务结构体？因为 context 属于一次调用，携带这次请求的取消和截止时间。服务对象会被多个请求共享，把某个请求的 context 存进去既会产生竞争，也会把生命周期搅在一起。Go 的惯例是把 context 作为第一个参数沿调用链传递。
+
+\begin{warningbox}{不要把 Context 存在长期对象里}
+\texttt{context.Context} 应跟随一次操作。HTTP 请求结束、客户端断开或超时后，\texttt{r.Context()} 会被取消，数据库调用也应收到同一个信号。把 context 存在 \texttt{Service} 或 repository 字段里，会让不同请求互相覆盖或共享错误的取消状态。
+\end{warningbox}
+
+\subsection{创建活动用例}
+
+创建活动的步骤很短，但每一步职责明确：规范化名称、验证、生成 ID 和时间、构造实体、调用 repository。
+
+\begin{gocode}[title={代码清单 12.18 \texttt{service.go}：创建活动}]
+func (s *Service) CreateEvent(
+    ctx context.Context,
+    input CreateEventInput,
+) (Event, error) {
+    input.Name = strings.TrimSpace(input.Name)
+    if err := validateEvent(input, s.now()); err != nil {
+        return Event{}, err
+    }
+
+    id, err := s.newID()
+    if err != nil {
+        return Event{}, fmt.Errorf("create event id: %w", err)
+    }
+    now := s.now().UTC()
+    event := Event{
+        ID: id, Name: input.Name, StartsAt: input.StartsAt.UTC(),
+        Capacity: input.Capacity, CreatedAt: now,
+    }
+    if err := s.repo.CreateEvent(ctx, event); err != nil {
+        return Event{}, fmt.Errorf("create event: %w", err)
+    }
+    return event, nil
+}
+\end{gocode}
+
+时间统一转为 UTC，避免同一瞬间以不同偏移保存后增加比较难度。\texttt{time.Time} 本身能表示时区，PostgreSQL 的 \texttt{timestamptz} 也会保存绝对时间，但应用层统一输出 UTC 可以让 API 示例和日志更一致。
+
+错误通过 \texttt{\%w} 包装，添加“生成活动 ID”或“创建活动”这样的操作上下文。调用方仍可用 \texttt{errors.Is/As} 找到内部错误类别；日志则不再只显示一句孤零零的 \texttt{not found}。
+
+服务没有显式设置 \texttt{ReservedSeats}，因为整数零值正好代表新活动尚未占座。零值有清楚语义时，Go 代码可以善用它；但不要把“零值方便”误解成“所有字段都不用验证”。容量的零值并不合法，所以验证仍然必需。
+
+\subsection{列出和读取活动}
+
+列表端点支持 \texttt{limit}。服务把缺省值设为 50，并限制在 1 到 100 之间：
+
+\begin{gocode}[title={代码清单 12.19 \texttt{service.go}：列出与读取活动}]
+func (s *Service) ListEvents(
+    ctx context.Context,
+    limit int,
+) ([]Event, error) {
+    if limit == 0 {
+        limit = 50
+    }
+    if limit < 1 || limit > 100 {
+        return nil, ValidationError{Fields: map[string]string{
+            "limit": "must be between 1 and 100",
+        }}
+    }
+    events, err := s.repo.ListEvents(ctx, limit)
+    if err != nil {
+        return nil, fmt.Errorf("list events: %w", err)
+    }
+    return events, nil
+}
+
+func (s *Service) Event(ctx context.Context, id ID) (Event, error) {
+    event, err := s.repo.EventByID(ctx, id)
+    if err != nil {
+        return Event{}, fmt.Errorf("get event %s: %w", id, err)
+    }
+    return event, nil
+}
+\end{gocode}
+
+把上限放在服务层，意味着其他传输入口也遵守同一规则。HTTP 层仍负责把查询字符串转换为整数，因为“字符串是不是整数”属于传输解析；“列表最多允许 100 条”属于用例规则。
+
+\subsection{创建占座用例}
+
+现在来到本章最重要的用例。先完整阅读流程，再逐段拆开：
+
+\begin{gocode}[title={代码清单 12.20 \texttt{service.go}：创建限时占座}]
+func (s *Service) CreateReservation(
+    ctx context.Context,
+    input CreateReservationInput,
+) (Reservation, error) {
+    input.CustomerName = strings.TrimSpace(input.CustomerName)
+    input.CustomerEmail = strings.TrimSpace(
+        strings.ToLower(input.CustomerEmail),
+    )
+    if err := validateReservation(input); err != nil {
+        return Reservation{}, err
+    }
+
+    event, err := s.repo.EventByID(ctx, input.EventID)
+    if err != nil {
+        return Reservation{}, fmt.Errorf("find event: %w", err)
+    }
+    now := s.now().UTC()
+    if !now.Before(event.StartsAt) {
+        return Reservation{}, ErrEventStarted
+    }
+    if input.Seats > event.AvailableSeats() {
+        return Reservation{}, ErrNoSeatsAvailable
+    }
+
+    id, err := s.newID()
+    if err != nil {
+        return Reservation{}, fmt.Errorf("create reservation id: %w", err)
+    }
+    expiresAt := now.Add(s.holdDuration)
+    if expiresAt.After(event.StartsAt) {
+        expiresAt = event.StartsAt
+    }
+    reservation := Reservation{
+        ID: id, EventID: input.EventID,
+        CustomerName: input.CustomerName,
+        CustomerEmail: input.CustomerEmail,
+        Seats: input.Seats, Status: ReservationHeld,
+        ExpiresAt: expiresAt, CreatedAt: now,
+    }
+
+    newReservedSeats := event.ReservedSeats + input.Seats
+    if err := s.repo.CreateReservation(
+        ctx, reservation, newReservedSeats,
+    ); err != nil {
+        return Reservation{}, fmt.Errorf("create reservation: %w", err)
+    }
+    return reservation, nil
+}
+\end{gocode}
+
+第一段只处理输入：规范化后再验证。邮箱转为小写不是完整的邮箱规范化标准，但足以让本项目的显示和后续幂等示例保持一致。
+
+第二段读取活动并检查两个业务条件。活动开始后不再允许占座；请求席位必须不大于当前可用席位。注意写法 \texttt{!now.Before(event.StartsAt)} 同时覆盖“现在等于开始时间”和“已经晚于开始时间”。
+
+第三段生成占座。默认过期时间是十分钟后，但不能晚于活动开始时间。假如活动十分钟内就要开始，hold 会在开始时到期，而不是穿越到活动进行中。时钟规则集中在服务层，测试就能精确验证。
+
+最后计算新的已占席位数，并要求 repository 把占座和这个数一起保存。这里出现了本章的并发隐患：读取活动与更新活动之间有一段时间。若两个请求同时读到 \texttt{ReservedSeats=10}，都可能各自计算出 12。它们不会看到对方尚未提交的决定。
+
+\begin{figure}[tbp]
+\centering
+\resizebox{0.96\textwidth}{!}{%
+\begin{tikzpicture}[
+  lane/.style={font=\sffamily\small,anchor=east},
+  msg/.style={-{Latex[length=2mm]},draw=PocketTealDark,thick},
+  dashedmsg/.style={-{Latex[length=2mm]},draw=PocketCoral,thick,dashed},
+  note/.style={draw=PocketCoral,fill=PocketCoral!7,rounded corners=1mm,align=left,font=\scriptsize,inner sep=2mm}
+]
+  \node[lane] at (0,0) {HTTP handler};
+  \node[lane] at (0,-1.1) {Service};
+  \node[lane] at (0,-2.2) {Repository};
+  \node[lane] at (0,-3.3) {PostgreSQL};
+  \foreach \y in {0,-1.1,-2.2,-3.3} {\draw[gray!40] (0.3,\y)--(12.6,\y);}
+  \draw[msg] (1,0)--(2.2,-1.1) node[midway,above,sloped,font=\scriptsize]{CreateReservation};
+  \draw[msg] (2.5,-1.1)--(3.7,-2.2) node[midway,above,sloped,font=\scriptsize]{EventByID};
+  \draw[msg] (4,-2.2)--(5.2,-3.3) node[midway,above,sloped,font=\scriptsize]{SELECT};
+  \draw[dashedmsg] (5.4,-3.3)--(6.6,-1.1) node[midway,above,sloped,font=\scriptsize]{event};
+  \node[note] at (8.0,-0.7) {检查开始时间\\计算可用席位\\构造 hold};
+  \draw[msg] (8.7,-1.1)--(9.9,-2.2) node[midway,above,sloped,font=\scriptsize]{CreateReservation};
+  \draw[msg] (10.1,-2.2)--(11.3,-3.3) node[midway,above,sloped,font=\scriptsize]{事务写入};
+  \draw[dashedmsg] (11.5,-3.3)--(12.5,0) node[midway,above,sloped,font=\scriptsize]{201};
+\end{tikzpicture}%
+}
+\caption{创建占座的调用顺序}
+\label{fig:seatkeeper-reservation-sequence}
+\end{figure}
+
+图 \ref{fig:seatkeeper-reservation-sequence} 展示了单次请求的完整路径。这个顺序对学习非常有价值：先读必要状态，再执行规则，再把相关写操作放进事务。它还清楚暴露下一章要消除的窗口，而不是用一句“以后优化”把风险藏起来。
+
+\subsection{为什么本章暂时不把所有规则塞进数据库}
+
+你可能会问：既然超卖风险已经知道，为什么不现在就写原子 SQL？因为本章要先建立完整边界，让读者看见 HTTP、服务、repository、迁移和测试如何协作。下一章从一个失败的并发测试开始，再比较行锁与条件更新；那时技术选择有可观察证据，而不是作者突然宣布“企业项目都应该这样”。
+
+这不是鼓励先写已知错误，而是教学 checkpoint 的明确限制。代码注释、README、警告框和测试计划都记录了它；后续章节会替换这一段实现。真实项目中，若初版马上面对并发流量，就应在上线前完成下一章的保护。
+
+\section{用 fake repository 快速测试服务}
+
+服务层只依赖小接口，因此测试不需要 PostgreSQL。我们创建一个 fake repository，用 map 保存活动和占座，并用互斥锁保护测试中的并行访问。
+
+\begin{gocode}[title={代码清单 12.21 \texttt{service\_test.go}：内存 fake repository}]
+type fakeRepository struct {
+    mu           sync.Mutex
+    events       map[ID]Event
+    reservations map[ID]Reservation
+    createErr    error
+}
+
+func newFakeRepository() *fakeRepository {
+    return &fakeRepository{
+        events:       map[ID]Event{},
+        reservations: map[ID]Reservation{},
+    }
+}
+
+func (f *fakeRepository) EventByID(
+    _ context.Context,
+    id ID,
+) (Event, error) {
+    f.mu.Lock()
+    defer f.mu.Unlock()
+    event, ok := f.events[id]
+    if !ok {
+        return Event{}, ErrNotFound
+    }
+    return event, nil
+}
+\end{gocode}
+
+fake 不是 PostgreSQL 的模拟器。它不解析 SQL，也不假装实现事务隔离；它只实现服务所需的接口，让测试观察业务流程。越试图让 fake 完全复制数据库，它越容易变成第二套数据库实现，而且通常会在最关键的行为上复制错。
+
+\texttt{sync.Mutex} 不是因为业务代码本章已经并发安全，而是因为测试使用 \texttt{t.Parallel()}，多个测试或子测试可能同时调用同一个 fake。每个 fake 通常只属于一个测试，但锁让实现边界更稳妥，也使下一章编写并发测试时不至于先被测试替身的数据竞争干扰。
+
+创建占座时，fake 更新活动并保存占座：
+
+\begin{gocode}[]
+func (f *fakeRepository) CreateReservation(
+    _ context.Context,
+    reservation Reservation,
+    newReservedSeats int,
+) error {
+    f.mu.Lock()
+    defer f.mu.Unlock()
+    if f.createErr != nil {
+        return f.createErr
+    }
+    event, ok := f.events[reservation.EventID]
+    if !ok {
+        return ErrNotFound
+    }
+    event.ReservedSeats = newReservedSeats
+    f.events[event.ID] = event
+    f.reservations[reservation.ID] = reservation
+    return nil
+}
+\end{gocode}
+
+测试还需要可预测的 ID 序列：
+
+\begin{gocode}[]
+func sequenceIDs(ids ...ID) func() (ID, error) {
+    var mu sync.Mutex
+    return func() (ID, error) {
+        mu.Lock()
+        defer mu.Unlock()
+        if len(ids) == 0 {
+            return "", errors.New("no test ids left")
+        }
+        id := ids[0]
+        ids = ids[1:]
+        return id, nil
+    }
+}
+\end{gocode}
+
+闭包记住剩余切片，每次返回一个固定 ID。这样断言无需知道随机数，也不会因为某次运行生成不同 UUID 而失败。
+
+\subsection{测试创建活动}
+
+\begin{gocode}[title={代码清单 12.22 \texttt{service\_test.go}：创建活动测试}]
+func TestCreateEvent(t *testing.T) {
+    t.Parallel()
+
+    repo := newFakeRepository()
+    service := NewService(
+        repo,
+        WithClock(func() time.Time { return fixedNow }),
+        WithIDGenerator(sequenceIDs(
+            "00000000-0000-4000-8000-000000000001",
+        )),
+    )
+
+    got, err := service.CreateEvent(context.Background(),
+        CreateEventInput{
+            Name: "  Go in the Park  ",
+            StartsAt: fixedNow.Add(24 * time.Hour),
+            Capacity: 80,
+        })
+    if err != nil {
+        t.Fatalf("CreateEvent() error = %v", err)
+    }
+
+    if got.Name != "Go in the Park" {
+        t.Fatalf("name = %q, want trimmed name", got.Name)
+    }
+    if got.CreatedAt != fixedNow || got.Capacity != 80 {
+        t.Fatalf("unexpected event: %#v", got)
+    }
+}
+\end{gocode}
+
+测试同时证明三件事：输入名称会去空白；固定时钟写入 \texttt{CreatedAt}；容量被保留。完整代码还用 \texttt{reflect.DeepEqual} 比较整个实体，确保 ID 和开始时间也正确。
+
+测试用 \texttt{context.Background()}，因为这个用例没有专门验证取消。后面写数据库集成测试时会使用带超时 context，防止测试在基础设施故障时无限等待。
+
+\subsection{测试占座时间和席位更新}
+
+占座测试先把一个活动放进 fake，再调用服务：
+
+\begin{gocode}[title={代码清单 12.23 \texttt{service\_test.go}：占座 happy path}]
+func TestCreateReservation(t *testing.T) {
+    repo := newFakeRepository()
+    eventID := ID("00000000-0000-4000-8000-000000000010")
+    repo.events[eventID] = Event{
+        ID: eventID, Name: "Go in the Park",
+        StartsAt: fixedNow.Add(24 * time.Hour),
+        Capacity: 20, ReservedSeats: 3,
+    }
+    service := NewService(
+        repo,
+        WithClock(func() time.Time { return fixedNow }),
+        WithIDGenerator(sequenceIDs(
+            "00000000-0000-4000-8000-000000000011",
+        )),
+    )
+
+    got, err := service.CreateReservation(context.Background(),
+        CreateReservationInput{
+            EventID: eventID, CustomerName: " Ada Lovelace ",
+            CustomerEmail: " ADA@EXAMPLE.COM ", Seats: 2,
+        })
+    if err != nil {
+        t.Fatal(err)
+    }
+    if got.Status != ReservationHeld ||
+        got.ExpiresAt != fixedNow.Add(10*time.Minute) {
+        t.Fatalf("unexpected reservation: %#v", got)
+    }
+    if repo.events[eventID].ReservedSeats != 5 {
+        t.Fatalf("reserved seats = %d, want 5",
+            repo.events[eventID].ReservedSeats)
+    }
+}
+\end{gocode}
+
+这个测试跨过了应用服务的一条完整竖切面：输入规范化、余量检查、过期时间、实体构造和 repository 写入。它仍然是快速单元测试，因为 fake 不需要外部进程。
+
+还应覆盖失败路径：资源不存在、活动已开始、席位不足、ID 生成失败和 repository 写入失败。代码包包含这些测试。测试错误类别时使用 \texttt{errors.Is}：
+
+\begin{gocode}[]
+_, err := service.CreateReservation(ctx, input)
+if !errors.Is(err, ErrNoSeatsAvailable) {
+    t.Fatalf("error = %v, want ErrNoSeatsAvailable", err)
+}
+\end{gocode}
+
+即使服务返回的是 \texttt{fmt.Errorf("create reservation: \%w", err)}，\texttt{errors.Is} 仍能沿错误链找到哨兵。HTTP 层稍后正是依赖这项性质把领域错误映射成状态码。
+
+\subsection{阶段检查}
+
+现在还没有 HTTP，也没有 PostgreSQL，但领域行为已经可以单独验证：
+
+\begin{shellcode}[title={运行服务层测试}]
+> go test ./internal/booking -run 'TestCreate(Event|Reservation)'
+ok      example.com/seatkeeper/internal/booking   0.00s
+\end{shellcode}
+\color{PocketInk}
+
+若测试失败，问题范围很小：领域或 fake，而不是路由、JSON、连接字符串和数据库同时登台。分层的第一份回报不是一张漂亮架构图，而是错误更容易定位。
+
+\section{给领域用例加上 HTTP 适配器}
+
+应用服务现在能创建活动和占座，但只有 Go 代码能直接调用它。下一步是把 HTTP 请求翻译成领域输入，再把结果翻译成 JSON 响应。这个翻译层位于 \path{internal/httpapi}。
+
+\subsection{让 HTTP 层只依赖自己需要的用例}
+
+HTTP 适配器也定义一个小接口：
+
+\begin{gocode}[title={代码清单 12.24 \texttt{server.go}：HTTP 适配器需要的服务接口}]
+type Service interface {
+    CreateEvent(context.Context, booking.CreateEventInput) (
+        booking.Event, error,
+    )
+    ListEvents(context.Context, int) ([]booking.Event, error)
+    Event(context.Context, booking.ID) (booking.Event, error)
+    CreateReservation(
+        context.Context,
+        booking.CreateReservationInput,
+    ) (booking.Reservation, error)
+    Reservation(context.Context, booking.ID) (
+        booking.Reservation, error,
+    )
+}
+\end{gocode}
+
+它与 \texttt{booking.Service} 的公开方法正好匹配，但接口属于 HTTP 包。这样 handler 测试可以注入 stub，而不必启动真实服务。接口不包含 HTTP 层不会调用的选项、验证函数或 repository 方法。
+
+这也展示了 Go 的隐式接口实现：\texttt{*booking.Service} 不需要在类型声明中写“implements Service”。只要方法集匹配，编译器就接受它。编译器很诚实，它不接受“我大概是这个意思”，但也不会要求我们填一张继承申请表。
+
+\subsection{注册路由}
+
+Go 1.22 之后，标准库 \texttt{http.ServeMux} 支持在模式中同时声明 HTTP 方法和路径变量。SeatKeeper 不需要第三方路由器：
+
+\begin{gocode}[title={代码清单 12.25 \texttt{server.go}：注册 SeatKeeper 路由}]
+type Server struct {
+    service Service
+    logger  *slog.Logger
+}
+
+func New(service Service, logger *slog.Logger) http.Handler {
+    server := &Server{service: service, logger: logger}
+    mux := http.NewServeMux()
+
+    mux.HandleFunc("GET /healthz", server.health)
+    mux.HandleFunc("POST /v1/events", server.createEvent)
+    mux.HandleFunc("GET /v1/events", server.listEvents)
+    mux.HandleFunc("GET /v1/events/{eventID}", server.getEvent)
+    mux.HandleFunc(
+        "POST /v1/events/{eventID}/reservations",
+        server.createReservation,
+    )
+    mux.HandleFunc(
+        "GET /v1/reservations/{reservationID}",
+        server.getReservation,
+    )
+
+    return server.logRequests(mux)
+}
+\end{gocode}
+
+路由模式中的 \texttt{eventID} 花括号部分声明路径变量。handler 使用 \texttt{PathValue} 读取它。HTTP 方法也属于模式，因此对同一路径发送不支持的方法时，标准库会返回合适的“不允许”响应，而不必让每个 handler 自己写方法判断。
+
+\texttt{New} 返回 \texttt{http.Handler}，隐藏具体 \texttt{Server}。调用方只需要把结果放进服务器的 \texttt{Handler} 字段；测试也能直接把它传给 \texttt{httptest.NewRecorder}。
+
+最后一行把 mux 包在一个简单请求日志中间件里：
+
+\begin{gocode}[]
+func (s *Server) logRequests(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        s.logger.Info("http request",
+            "method", r.Method,
+            "path", r.URL.Path,
+        )
+        next.ServeHTTP(w, r)
+    })
+}
+\end{gocode}
+
+这是第一版日志，只记录方法和路径。生产级访问日志通常还要记录状态码、耗时、请求 ID 和错误；这些内容会在最后一章加入。此处先让每个请求有最小可见性。
+
+\subsection{严格解码 JSON}
+
+标准库 \texttt{json.Decoder} 默认会忽略未知字段。这对兼容某些松散输入很方便，却可能隐藏拼写错误：客户端发送 \texttt{"capcity": 12}，服务器悄悄忽略它，再抱怨容量为零。更好的开发体验是明确拒绝未知字段。
+
+还要限制请求体大小，并确保只有一个顶层 JSON 对象：
+
+\begin{gocode}[title={代码清单 12.26 \texttt{json.go}：安全、严格地解码请求体}]
+const maxJSONBody = 1 << 20 // 1 MiB
+
+func decodeJSON(
+    w http.ResponseWriter,
+    r *http.Request,
+    destination any,
+) error {
+    r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
+    decoder := json.NewDecoder(r.Body)
+    decoder.DisallowUnknownFields()
+
+    if err := decoder.Decode(destination); err != nil {
+        return fmt.Errorf("decode JSON: %w", err)
+    }
+    if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+        return errors.New(
+            "request body must contain one JSON object",
+        )
+    }
+    return nil
+}
+\end{gocode}
+
+\texttt{http.MaxBytesReader} 在读取超过 1 MiB 时返回错误，防止一个小型 JSON 端点被无限请求体拖住。这个限制不是完整的拒绝服务防护，但它是合理的边界。活动名称最长 120 个字符，占座请求更小，1 MiB 已经非常宽裕。
+
+第一次 \texttt{Decode} 读取目标对象；第二次尝试解码一个空结构，正常情况应该立即得到 \texttt{io.EOF}。若还能读出别的内容，说明请求体包含第二个 JSON 值。没有这一步，下面这种请求可能只处理第一个对象而忽略第二个：
+
+\begin{jsoncode}[]
+{"name":"First","capacity":10}
+{"name":"Surprise","capacity":999}
+\end{jsoncode}
+
+\begin{warningbox}{限制请求体要在读取之前完成}
+先调用 \texttt{io.ReadAll}，再检查字节长度，已经把超大请求体读进内存了。\texttt{MaxBytesReader} 包装的是 reader 本身，因此读取过程就受到限制。对于文件上传还需要流式处理和更细的限制，本章的 JSON API 不涉及上传。
+\end{warningbox}
+
+\subsection{统一写 JSON}
+
+响应 helper 设置内容类型、状态码并编码值：
+
+\begin{gocode}[title={代码清单 12.27 \texttt{json.go}：写入 JSON 响应}]
+func writeJSON(w http.ResponseWriter, status int, value any) {
+    w.Header().Set(
+        "Content-Type",
+        "application/json; charset=utf-8",
+    )
+    w.WriteHeader(status)
+    if err := json.NewEncoder(w).Encode(value); err != nil {
+        // The response has already started.
+        // Logging is the only safe action left.
+        return
+    }
+}
+\end{gocode}
+
+一旦 \texttt{WriteHeader} 或第一次 \texttt{Write} 发生，响应状态和头部就已经发送。编码中途失败时，不能再把状态改成 500；最多记录日志或关闭连接。这个 helper 当前没有拿到 logger，因此只返回。最后一章重构访问日志和响应记录器时会改善这一点。
+
+与第 11 章写 HTML 时一样，响应开始以后，服务器不能假装刚才什么都没发生。HTTP 没有“撤回已经寄出的半封信”按钮。
+
+\subsection{把领域错误映射成 HTTP}
+
+错误映射集中在一个函数里：
+
+\begin{gocode}[title={代码清单 12.28 \texttt{json.go}：错误分类与状态码}]
+func writeServiceError(w http.ResponseWriter, err error) {
+    var validationErr booking.ValidationError
+    switch {
+    case errors.As(err, &validationErr):
+        writeJSON(w, http.StatusUnprocessableEntity,
+            errorEnvelope{Error: apiError{
+                Code: "validation_error",
+                Message: "request validation failed",
+                Fields: validationErr.Fields,
+            }})
+    case errors.Is(err, booking.ErrNotFound):
+        writeJSON(w, http.StatusNotFound,
+            errorEnvelope{Error: apiError{
+                Code: "not_found",
+                Message: "the requested resource does not exist",
+            }})
+    case errors.Is(err, booking.ErrNoSeatsAvailable):
+        writeJSON(w, http.StatusConflict,
+            errorEnvelope{Error: apiError{
+                Code: "not_enough_seats",
+                Message: "the event does not have enough available seats",
+            }})
+    case errors.Is(err, booking.ErrEventStarted):
+        // Another 409 response with code "event_started".
+    default:
+        writeJSON(w, http.StatusInternalServerError,
+            errorEnvelope{Error: apiError{
+                Code: "internal_error",
+                Message: "an unexpected error occurred",
+            }})
+    }
+}
+\end{gocode}
+
+正文省略了 \texttt{ErrConflict} 和完整 \texttt{ErrEventStarted} 分支，代码包中全部存在。注意默认错误不会把 \texttt{err.Error()} 直接返回客户端。数据库连接字符串、SQL 或内部路径都可能出现在错误链里；客户端只应看到稳定、安全的信息，详细错误由服务器日志记录。
+
+\texttt{ValidationError} 使用 \texttt{errors.As}，因为我们要提取具体字段；哨兵使用 \texttt{errors.Is}，因为只关心类别。错误包装不会破坏这两种判断。
+
+\subsection{创建活动 handler}
+
+传输结构负责 JSON 字段名：
+
+\begin{gocode}[title={代码清单 12.29 \texttt{events.go}：创建活动 handler}]
+type createEventRequest struct {
+    Name     string    `json:"name"`
+    StartsAt time.Time `json:"starts_at"`
+    Capacity int       `json:"capacity"`
+}
+
+type eventResponse struct {
+    booking.Event
+    AvailableSeats int `json:"available_seats"`
+}
+
+func eventView(event booking.Event) eventResponse {
+    return eventResponse{
+        Event: event,
+        AvailableSeats: event.AvailableSeats(),
+    }
+}
+
+func (s *Server) createEvent(
+    w http.ResponseWriter,
+    r *http.Request,
+) {
+    var request createEventRequest
+    if err := decodeJSON(w, r, &request); err != nil {
+        writeBadJSON(w, err)
+        return
+    }
+
+    event, err := s.service.CreateEvent(r.Context(),
+        booking.CreateEventInput{
+            Name: request.Name,
+            StartsAt: request.StartsAt,
+            Capacity: request.Capacity,
+        })
+    if err != nil {
+        writeServiceError(w, err)
+        return
+    }
+    w.Header().Set("Location", "/v1/events/"+string(event.ID))
+    writeJSON(w, http.StatusCreated, eventView(event))
+}
+\end{gocode}
+
+handler 做四件事：解码、转换、调用用例、编码。它不检查活动名称长度，也不计算 hold；这些属于服务。它传入 \texttt{r.Context()}，因此客户端取消或服务器超时可以沿调用链到达 repository 和数据库。
+
+响应结构匿名嵌入领域实体，使原有字段进入 JSON；它再增加可用席位字段。这是一种小而明确的表示层视图。若未来 API 字段与领域实体差异增大，可以改为显式复制所有字段。
+
+\subsection{列表端点的查询参数}
+
+\texttt{limit} 来自 URL 查询字符串，因此 HTTP 层先把它转换为整数：
+
+\begin{gocode}[title={代码清单 12.30 \texttt{events.go}：解析列表限制}]
+func (s *Server) listEvents(
+    w http.ResponseWriter,
+    r *http.Request,
+) {
+    limit := 0
+    if raw := r.URL.Query().Get("limit"); raw != "" {
+        parsed, err := strconv.Atoi(raw)
+        if err != nil {
+            writeJSON(w, http.StatusUnprocessableEntity,
+                errorEnvelope{Error: apiError{
+                    Code: "validation_error",
+                    Message: "request validation failed",
+                    Fields: map[string]string{
+                        "limit": "must be an integer",
+                    },
+                }})
+            return
+        }
+        limit = parsed
+    }
+
+    events, err := s.service.ListEvents(r.Context(), limit)
+    if err != nil {
+        writeServiceError(w, err)
+        return
+    }
+    response := make([]eventResponse, 0, len(events))
+    for _, event := range events {
+        response = append(response, eventView(event))
+    }
+    writeJSON(w, http.StatusOK,
+        map[string]any{"events": response})
+}
+\end{gocode}
+
+空参数保留零值，由服务替换成默认 50。\texttt{limit=banana} 无法转换，在 HTTP 层直接返回字段错误；\texttt{limit=500} 可以转换，但超出业务上限，由服务返回 \texttt{ValidationError}。这正好展示解析与业务验证的边界。
+
+响应把列表包在 \texttt{"events"} 字段中，而不是直接返回数组。包络将来可以增加分页信息，例如 \texttt{next\_cursor}，而不会把顶层类型从数组改成对象。
+
+\subsection{读取路径变量}
+
+读取活动时先解析路径中的 UUID：
+
+\begin{gocode}[title={代码清单 12.31 \texttt{events.go}：读取活动}]
+func (s *Server) getEvent(
+    w http.ResponseWriter,
+    r *http.Request,
+) {
+    id, err := booking.ParseID(r.PathValue("eventID"))
+    if err != nil {
+        writeJSON(w, http.StatusNotFound,
+            errorEnvelope{Error: apiError{
+                Code: "not_found",
+                Message: "the requested event does not exist",
+            }})
+        return
+    }
+    event, err := s.service.Event(r.Context(), id)
+    if err != nil {
+        writeServiceError(w, err)
+        return
+    }
+    writeJSON(w, http.StatusOK, eventView(event))
+}
+\end{gocode}
+
+把格式错误也映射为 404，避免暴露“这个形状根本不可能是现有 ID”与“形状合法但不存在”的区别。对普通公开活动列表，这不是关键安全边界，但保持统一语义更简单。
+
+占座 handler 与创建活动非常相似：解析路径中的活动 ID，严格解码请求，构造 \texttt{CreateReservationInput}，调用服务，设置 \texttt{Location} 并返回 201。代码包保留完整实现；正文不重复打印结构相同的错误分支。
+
+\begin{gocode}[title={代码清单 12.32 \texttt{reservations.go}：创建占座的核心}]
+reservation, err := s.service.CreateReservation(
+    r.Context(),
+    booking.CreateReservationInput{
+        EventID: eventID,
+        CustomerName: request.CustomerName,
+        CustomerEmail: request.CustomerEmail,
+        Seats: request.Seats,
+    },
+)
+if err != nil {
+    writeServiceError(w, err)
+    return
+}
+w.Header().Set(
+    "Location",
+    "/v1/reservations/"+string(reservation.ID),
+)
+writeJSON(w, http.StatusCreated, reservation)
+\end{gocode}
+
+\subsection{健康端点}
+
+第一版健康端点非常简单：
+
+\begin{gocode}[]
+func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+    writeJSON(w, http.StatusOK,
+        map[string]string{"status": "ok"})
+}
+\end{gocode}
+
+它只证明进程能够接受 HTTP 请求，不证明数据库可用。因此它更接近 liveness，而不是 readiness。最后一章会把“活着”和“准备好接流量”分开；本章先使用它等待容器里的 API 启动。
+
+\section{使用 httptest 检查 HTTP 契约}
+
+handler 测试不需要占用真实端口。\texttt{net/http/httptest} 可以构造请求、记录响应，并像客户端一样检查状态码、头部和 JSON。
+
+\subsection{创建一个只在被调用时工作的 stub}
+
+测试定义一个 \texttt{stubService}，每个方法委托给函数字段：
+
+\begin{gocode}[title={代码清单 12.33 \texttt{server\_test.go}：HTTP 服务 stub}]
+type stubService struct {
+    createEventFn func(
+        context.Context,
+        booking.CreateEventInput,
+    ) (booking.Event, error)
+    listEventsFn func(context.Context, int) (
+        []booking.Event, error,
+    )
+    eventFn func(context.Context, booking.ID) (
+        booking.Event, error,
+    )
+    createReservationFn func(
+        context.Context,
+        booking.CreateReservationInput,
+    ) (booking.Reservation, error)
+    reservationFn func(context.Context, booking.ID) (
+        booking.Reservation, error,
+    )
+}
+\end{gocode}
+
+完整文件为这些字段实现接口方法。未使用的方法默认设置为 panic；若 handler 意外调用了错误用例，测试会立即失败，而不是默默返回零值。
+
+日志写入 \texttt{io.Discard}，避免测试输出被正常请求日志淹没：
+
+\begin{gocode}[]
+func quietLogger() *slog.Logger {
+    return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+\end{gocode}
+
+\subsection{测试创建活动}
+
+一个完整的 handler 测试会检查输入转换、状态码、Location 和响应：
+
+\begin{gocode}[title={代码清单 12.34 \texttt{server\_test.go}：测试创建活动端点}]
+func TestCreateEvent(t *testing.T) {
+    startsAt := time.Date(2026, 10, 10, 9, 30, 0, 0, time.UTC)
+    event := booking.Event{
+        ID: "00000000-0000-4000-8000-000000000201",
+        Name: "Go Concurrency Lab",
+        StartsAt: startsAt, Capacity: 12,
+        CreatedAt: time.Date(2026, 10, 3, 10, 0, 0, 0, time.UTC),
+    }
+    service := unusedService()
+    service.createEventFn = func(
+        _ context.Context,
+        input booking.CreateEventInput,
+    ) (booking.Event, error) {
+        if input.Name != event.Name || input.Capacity != 12 {
+            t.Fatalf("unexpected input: %#v", input)
+        }
+        return event, nil
+    }
+
+    body := bytes.NewBufferString(
+        `{"name":"Go Concurrency Lab",` +
+            `"starts_at":"2026-10-10T09:30:00Z",` +
+            `"capacity":12}`,
+    )
+    request := httptest.NewRequest(http.MethodPost,
+        "/v1/events", body)
+    recorder := httptest.NewRecorder()
+
+    New(service, quietLogger()).ServeHTTP(recorder, request)
+
+    if recorder.Code != http.StatusCreated {
+        t.Fatalf("status = %d, want 201", recorder.Code)
+    }
+    if got := recorder.Header().Get("Location");
+        got != "/v1/events/"+string(event.ID) {
+        t.Fatalf("Location = %q", got)
+    }
+}
+\end{gocode}
+
+测试没有启动 \texttt{ListenAndServe}。\texttt{httptest.NewRequest} 创建服务器侧请求，\texttt{NewRecorder} 实现 \texttt{ResponseWriter}，最后直接调用 handler。这使 HTTP 契约测试仍然只需几毫秒。
+
+完整测试还解码响应 JSON，验证 \texttt{available\_seats} 等于 12。不要只检查状态码；一个返回 201 但 body 字段错误的端点同样破坏契约。
+
+\subsection{测试未知字段和错误映射}
+
+严格 JSON 的价值需要测试保护：
+
+\begin{gocode}[title={代码清单 12.35 拒绝未知 JSON 字段}]
+func TestCreateEventRejectsUnknownField(t *testing.T) {
+    request := httptest.NewRequest(
+        http.MethodPost,
+        "/v1/events",
+        bytes.NewBufferString(`{
+          "name":"Go meetup",
+          "starts_at":"2026-10-10T09:30:00Z",
+          "capacity":12,
+          "capcity":99
+        }`),
+    )
+    recorder := httptest.NewRecorder()
+
+    New(unusedService(), quietLogger()).ServeHTTP(
+        recorder, request,
+    )
+
+    if recorder.Code != http.StatusBadRequest {
+        t.Fatalf("status = %d, want 400", recorder.Code)
+    }
+}
+\end{gocode}
+
+由于解码在调用 service 之前失败，\texttt{unusedService} 的所有方法都可以保持 panic。若 handler 错误地忽略未知字段并继续，测试就会以“unexpected service call”失败。
+
+还要验证领域错误映射。例如 stub 返回 \texttt{booking.ErrNoSeatsAvailable}，响应必须是 409，机器码必须是 \texttt{not\_enough\_seats}。这类测试把 HTTP 契约与领域错误连接起来，却不依赖数据库如何产生错误。
+
+\subsection{运行 HTTP 测试}
+
+\begin{shellcode}[title={运行 HTTP 适配器测试}]
+> go test ./internal/httpapi
+ok      example.com/seatkeeper/internal/httpapi   0.00s
+\end{shellcode}
+\color{PocketInk}
+
+现在一条请求已经能从 HTTP 进入应用服务，只差真实持久化。下一步让 repository 接口落到 PostgreSQL。
+
+\section{用 PostgreSQL 保存活动和占座}
+
+fake repository 证明了服务调用顺序，却不能证明 SQL、约束、时间类型或事务真的正确。现在建立关系模型。活动与占座是一对多关系：一个活动可以有多笔占座，每笔占座只属于一个活动。
+
+\begin{figure}[tbp]
+\centering
+\resizebox{0.94\textwidth}{!}{%
+\begin{tikzpicture}[
+  table/.style={draw=PocketTealDark,thick,rounded corners=1.5mm,fill=white,minimum width=58mm,align=left,font=\small,inner sep=0pt},
+  title/.style={fill=PocketTealDark,text=white,font=\sffamily\bfseries,minimum width=58mm,minimum height=8mm,anchor=north},
+  field/.style={anchor=west,font=\ttfamily\scriptsize},
+  rel/.style={-{Latex[length=2.2mm]},thick,draw=PocketCoral}
+]
+  \node[table,minimum height=63mm] (events) at (0,0) {};
+  \node[title] at (events.north) {events};
+  \node[field] at ([xshift=3mm,yshift=-12mm]events.north west) {id uuid PK};
+  \node[field] at ([xshift=3mm,yshift=-19mm]events.north west) {name text};
+  \node[field] at ([xshift=3mm,yshift=-26mm]events.north west) {starts\_at timestamptz};
+  \node[field] at ([xshift=3mm,yshift=-33mm]events.north west) {capacity integer};
+  \node[field] at ([xshift=3mm,yshift=-40mm]events.north west) {reserved\_seats integer};
+  \node[field] at ([xshift=3mm,yshift=-47mm]events.north west) {created\_at timestamptz};
+
+  \node[table,minimum height=76mm,right=34mm of events] (reservations) {};
+  \node[title] at (reservations.north) {reservations};
+  \node[field] at ([xshift=3mm,yshift=-12mm]reservations.north west) {id uuid PK};
+  \node[field] at ([xshift=3mm,yshift=-19mm]reservations.north west) {event\_id uuid FK};
+  \node[field] at ([xshift=3mm,yshift=-26mm]reservations.north west) {customer\_name text};
+  \node[field] at ([xshift=3mm,yshift=-33mm]reservations.north west) {customer\_email text};
+  \node[field] at ([xshift=3mm,yshift=-40mm]reservations.north west) {seats integer};
+  \node[field] at ([xshift=3mm,yshift=-47mm]reservations.north west) {status text};
+  \node[field] at ([xshift=3mm,yshift=-54mm]reservations.north west) {expires\_at timestamptz};
+  \node[field] at ([xshift=3mm,yshift=-61mm]reservations.north west) {created\_at timestamptz};
+
+  \draw[rel] (events.east) -- node[above,font=\sffamily\scriptsize]{1 对多} (reservations.west);
+\end{tikzpicture}%
+}
+\caption{第 12 章关系模型}
+\label{fig:seatkeeper-relational-model}
+\end{figure}
+
+\subsection{用显式迁移创建 schema}
+
+迁移文件以序号开头，保证按词典顺序执行。第一份迁移建立两张表：
+
+\begin{sqlcode}[title={代码清单 12.36 \texttt{000001\_initial.sql}：活动表}]
+-- +migrate Up
+CREATE TABLE IF NOT EXISTS events (
+    id              uuid PRIMARY KEY,
+    name            text        NOT NULL
+        CHECK (char_length(btrim(name)) BETWEEN 3 AND 120),
+    starts_at       timestamptz NOT NULL,
+    capacity        integer     NOT NULL
+        CHECK (capacity BETWEEN 1 AND 1000),
+    reserved_seats  integer     NOT NULL DEFAULT 0
+        CHECK (reserved_seats >= 0),
+    created_at      timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS events_starts_at_idx
+    ON events (starts_at, id);
+\end{sqlcode}
+
+数据库再次检查名称与容量。即使将来有批处理程序绕过 HTTP 调用 repository，非法值仍无法写入。\texttt{btrim(name)} 去掉首尾空白后再计算长度，与服务层的规范化方向一致。
+
+\texttt{timestamptz} 存储绝对时间点。名字里的“带时区”常令人误会：PostgreSQL 并不是把原始时区标签完整保存，而是把输入归一化为时间点，并按会话时区显示。Go 扫描到 \texttt{time.Time} 后，我们在 API 中统一输出 UTC。
+
+活动索引按 \texttt{starts\_at, id} 排序，与列表查询的 \texttt{ORDER BY} 一致。第二列 ID 让开始时间相同的活动仍有确定顺序。
+
+占座表如下：
+
+\begin{sqlcode}[title={代码清单 12.37 \texttt{000001\_initial.sql}：占座表与索引}]
+CREATE TABLE IF NOT EXISTS reservations (
+    id              uuid PRIMARY KEY,
+    event_id        uuid NOT NULL
+        REFERENCES events(id) ON DELETE CASCADE,
+    customer_name   text NOT NULL
+        CHECK (char_length(btrim(customer_name)) BETWEEN 2 AND 120),
+    customer_email  text        NOT NULL,
+    seats           integer     NOT NULL
+        CHECK (seats BETWEEN 1 AND 10),
+    status          text        NOT NULL
+        CHECK (status IN ('held')),
+    expires_at      timestamptz NOT NULL,
+    created_at      timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS reservations_event_created_idx
+    ON reservations (event_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS reservations_expires_at_idx
+    ON reservations (expires_at)
+    WHERE status = 'held';
+\end{sqlcode}
+
+外键保证占座引用真实活动。\texttt{ON DELETE CASCADE} 表示删除活动时，其占座也删除；本章没有暴露删除端点，但 schema 仍明确关系行为。
+
+状态约束眼下只允许 \texttt{held}。下一章扩展状态机时要新增迁移修改约束，而不是直接手工改生产表。迁移记录不仅负责“创建数据库”，也记录 schema 随代码演进的历史。
+
+最后一个是部分索引（partial index）：只有 \texttt{status='held'} 的行进入索引。自动扫描过期 hold 要到第 15 章才实现，但现在已经有 \texttt{expires\_at} 语义。提前建立这个小索引不会改变主线，也避免后续迁移忘记它。
+
+\begin{warningbox}{当前 schema 还没有完整容量约束}
+\texttt{reserved\_seats >= 0} 已由数据库保证，但 \texttt{reserved\_seats <= capacity} 尚未写成约束，更新语句也还不是条件原子更新。这是下一章的核心改动。请把本章迁移理解为教学 checkpoint，而不是最终库存模型。
+\end{warningbox}
+
+迁移末尾包含回滚部分：
+
+\begin{sqlcode}[]
+-- +migrate Down
+DROP TABLE IF EXISTS reservations;
+DROP TABLE IF EXISTS events;
+\end{sqlcode}
+
+本章的迁移命令只自动执行 Up。Down 内容仍写在文件中，便于开发者理解逆向操作和人工恢复。真实生产回滚常涉及数据丢失，不能只因为有两条 \texttt{DROP TABLE} 就放心地按下按钮。
+
+\subsection{把迁移嵌入二进制}
+
+Go 的 \texttt{embed} 包可以把 SQL 文件编进迁移命令：
+
+\begin{gocode}[title={代码清单 12.38 \texttt{migrations/embed.go}：嵌入 SQL}]
+package migrations
+
+import "embed"
+
+// Files contains every numbered SQL migration.
+//
+//go:embed *.sql
+var Files embed.FS
+\end{gocode}
+
+这样生成的 \texttt{migrate} 二进制不需要在运行目录旁再找 SQL 文件。容器只复制两个可执行文件，也能应用迁移。\texttt{//go:embed} 是编译器指令，必须紧邻变量；导入 \texttt{embed} 即使没有显式调用函数也不能删除。
+
+迁移器首先创建 \texttt{schema\_migrations} 表，再按文件名排序。对每个文件，它查询版本是否已经存在；未执行的迁移在事务中逐条运行，最后记录版本。
+
+\begin{gocode}[title={代码清单 12.39 \texttt{migrate.go}：按顺序应用迁移}]
+func Up(ctx context.Context, db *sql.DB, files fs.FS) error {
+    if _, err := db.ExecContext(ctx, createMigrationsTable); err != nil {
+        return fmt.Errorf("create schema_migrations: %w", err)
+    }
+    paths, err := fs.Glob(files, "*.sql")
+    if err != nil {
+        return fmt.Errorf("list migrations: %w", err)
+    }
+    sort.Strings(paths)
+
+    for _, path := range paths {
+        version := filepath.Base(path)
+        var applied bool
+        err := db.QueryRowContext(ctx,
+            `SELECT EXISTS (
+               SELECT 1 FROM schema_migrations WHERE version = $1
+             )`, version,
+        ).Scan(&applied)
+        if err != nil {
+            return fmt.Errorf("check migration %s: %w", version, err)
+        }
+        if applied {
+            continue
+        }
+        content, err := fs.ReadFile(files, path)
+        if err != nil {
+            return fmt.Errorf("read migration %s: %w", version, err)
+        }
+        up, _, _ := strings.Cut(string(content), "-- +migrate Down")
+        if err := apply(ctx, db, version, statements(up)); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+\end{gocode}
+
+这不是要取代成熟迁移工具，而是让本章完整展示“迁移记录是什么、为什么需要事务、版本怎样持久化”。解析器只支持本项目简单 SQL，用分号拆分语句；复杂函数体中也可能含分号，因此真实大型项目应采用成熟工具或更严格格式。
+
+\begin{tipbox}{不要在应用启动时偷偷修改 schema}
+本项目把迁移做成独立命令。这样部署过程可以明确地先迁移、再启动 API；迁移失败时不会有一半实例运行旧 schema、另一半尝试修改表。小型本地程序可以启动时迁移，但生产系统应认真设计部署顺序和向后兼容。
+\end{tipbox}
+
+\subsection{连接 PostgreSQL}
+
+Go 标准库的 \texttt{database/sql} 提供连接池、context 版本的查询方法和事务抽象，但具体 PostgreSQL 协议由 driver 实现。为了让交付代码在离线审查环境中无需下载 Go module，代码包包含一个小型 \path{internal/pgdriver}，通过系统 \texttt{libpq} 注册 \texttt{database/sql} driver。
+
+普通项目通常会选择成熟 PostgreSQL driver，例如 pgx；本章不把自制 wire protocol 当教学目标。正文只依赖 \texttt{database/sql} 接口，driver 实现完整保留在代码包，并由单独测试覆盖参数和类型转换。
+
+\begin{gocode}[title={代码清单 12.40 \texttt{store.go}：打开存储并配置连接池}]
+type Store struct {
+    db *sql.DB
+}
+
+func Open(ctx context.Context, databaseURL string) (*Store, error) {
+    db, err := sql.Open(pgdriver.DriverName, databaseURL)
+    if err != nil {
+        return nil, fmt.Errorf("open PostgreSQL: %w", err)
+    }
+    db.SetMaxOpenConns(12)
+    db.SetMaxIdleConns(4)
+
+    if err := db.PingContext(ctx); err != nil {
+        db.Close()
+        return nil, fmt.Errorf("ping PostgreSQL: %w", err)
+    }
+    return &Store{db: db}, nil
+}
+
+func NewStore(db *sql.DB) *Store { return &Store{db: db} }
+func (s *Store) Close() error    { return s.db.Close() }
+\end{gocode}
+
+\texttt{sql.Open} 通常只验证参数并创建连接池，不保证数据库此刻可达，所以紧接着调用 \texttt{PingContext}。context 让启动连接有超时；失败时关闭池，避免资源泄漏。
+
+\texttt{sql.DB} 本身是并发安全的连接池，不代表一条 \texttt{*sql.Conn} 或事务可以被任意 goroutine 共享。服务会把同一个 \texttt{Store} 注入所有请求，\texttt{database/sql} 在内部借出连接。
+
+连接数 12 和空闲数 4 是本地教学默认值，不是容量规划答案。生产配置要结合数据库最大连接、实例数、请求耗时和负载测试；“越多越快”常会把数据库变成一个同时接待几百位客人的单人收银台。
+
+\subsection{翻译存储错误}
+
+PostgreSQL 通过 SQLSTATE 提供稳定错误码。适配器把数据库错误翻译成领域类别：
+
+\begin{gocode}[title={代码清单 12.41 \texttt{store.go}：数据库错误翻译}]
+func translateError(err error) error {
+    if err == nil {
+        return nil
+    }
+    if errors.Is(err, sql.ErrNoRows) {
+        return booking.ErrNotFound
+    }
+    var postgresErr *pgdriver.Error
+    if errors.As(err, &postgresErr) {
+        switch postgresErr.Code {
+        case "23505": // unique_violation
+            return fmt.Errorf("%w: %s",
+                booking.ErrConflict, postgresErr.Message)
+        case "23503": // foreign_key_violation
+            return fmt.Errorf("%w: %s",
+                booking.ErrNotFound, postgresErr.Message)
+        case "23514": // check_violation
+            return fmt.Errorf("%w: %s",
+                booking.ErrConflict, postgresErr.Message)
+        }
+    }
+    return err
+}
+\end{gocode}
+
+应用服务和 HTTP 层不需要认识 \texttt{23505}。它们只处理 \texttt{ErrConflict} 或 \texttt{ErrNotFound}。适配器保留原消息作为包装上下文，服务器日志可见，外部响应仍使用安全机器码。
+
+外键违反暂时映射成 \texttt{ErrNotFound}，因为占座引用的活动不存在；检查约束映射成冲突。随着领域更复杂，这些翻译可能需要结合约束名，而不只看 SQLSTATE。适配器正是容纳这些数据库细节的地方。
+
+\subsection{写入与查询活动}
+
+\begin{gocode}[title={代码清单 12.42 \texttt{events.go}：创建活动}]
+func (s *Store) CreateEvent(
+    ctx context.Context,
+    event booking.Event,
+) error {
+    const query = `
+        INSERT INTO events (
+            id, name, starts_at, capacity,
+            reserved_seats, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6)`
+
+    _, err := s.db.ExecContext(ctx, query,
+        event.ID, event.Name, event.StartsAt,
+        event.Capacity, event.ReservedSeats, event.CreatedAt,
+    )
+    if err != nil {
+        return fmt.Errorf("insert event: %w", translateError(err))
+    }
+    return nil
+}
+\end{gocode}
+
+参数使用 \texttt{\$1} 等占位符，而不是字符串拼接。driver 会把值独立传给 PostgreSQL，避免 SQL 注入，也让时间和整数按类型处理。
+
+列表查询必须在使用后关闭 rows，并在循环结束检查 \texttt{rows.Err()}：
+
+\begin{gocode}[title={代码清单 12.43 \texttt{events.go}：列出活动}]
+func (s *Store) ListEvents(
+    ctx context.Context,
+    limit int,
+) ([]booking.Event, error) {
+    const query = `
+        SELECT id, name, starts_at, capacity,
+               reserved_seats, created_at
+        FROM events
+        ORDER BY starts_at, id
+        LIMIT $1`
+
+    rows, err := s.db.QueryContext(ctx, query, limit)
+    if err != nil {
+        return nil, fmt.Errorf("query events: %w",
+            translateError(err))
+    }
+    defer rows.Close()
+
+    events := make([]booking.Event, 0)
+    for rows.Next() {
+        var event booking.Event
+        if err := rows.Scan(
+            &event.ID, &event.Name, &event.StartsAt,
+            &event.Capacity, &event.ReservedSeats,
+            &event.CreatedAt,
+        ); err != nil {
+            return nil, fmt.Errorf("scan event: %w", err)
+        }
+        events = append(events, event)
+    }
+    if err := rows.Err(); err != nil {
+        return nil, fmt.Errorf("iterate events: %w", err)
+    }
+    return events, nil
+}
+\end{gocode}
+
+\texttt{rows.Next()} 期间发生的网络或解码错误不一定在最初的 \texttt{QueryContext} 返回，因此循环后必须检查 \texttt{rows.Err()}。漏掉它，可能把不完整列表当成成功结果返回。
+
+读取单个活动时先发出单行查询，再扫描结果。没有匹配行时，标准库会返回“没有行”错误；存储适配器把它翻译成领域的“未找到”错误。
+
+\subsection{在一个事务中写入占座和活动计数}
+
+创建占座涉及两次写入：插入 \texttt{reservations}，更新 \texttt{events.reserved\_seats}。它们必须一起成功或一起失败，所以使用事务：
+
+\begin{gocode}[title={代码清单 12.44 \texttt{reservations.go}：第一版占座事务}]
+func (s *Store) CreateReservation(
+    ctx context.Context,
+    reservation booking.Reservation,
+    newReservedSeats int,
+) error {
+    tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+    if err != nil {
+        return fmt.Errorf("begin reservation transaction: %w", err)
+    }
+    defer tx.Rollback()
+
+    const insertReservation = `
+        INSERT INTO reservations (
+            id, event_id, customer_name, customer_email,
+            seats, status, expires_at, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+    if _, err := tx.ExecContext(ctx, insertReservation,
+        reservation.ID, reservation.EventID,
+        reservation.CustomerName, reservation.CustomerEmail,
+        reservation.Seats, reservation.Status,
+        reservation.ExpiresAt, reservation.CreatedAt,
+    ); err != nil {
+        return fmt.Errorf("insert reservation: %w",
+            translateError(err))
+    }
+
+    const updateEvent = `
+        UPDATE events
+        SET reserved_seats = $1
+        WHERE id = $2`
+    result, err := tx.ExecContext(ctx, updateEvent,
+        newReservedSeats, reservation.EventID)
+    if err != nil {
+        return fmt.Errorf("update event seats: %w",
+            translateError(err))
+    }
+    rows, err := result.RowsAffected()
+    if err != nil {
+        return fmt.Errorf("count updated events: %w", err)
+    }
+    if rows != 1 {
+        return booking.ErrNotFound
+    }
+    return tx.Commit()
+}
+\end{gocode}
+
+\texttt{defer tx.Rollback()} 是一种安全网。若函数在提交前任何位置返回，事务会回滚；若已经提交，随后调用 \texttt{Rollback} 会返回事务已完成错误，我们忽略它即可。这样新增错误分支时不容易忘记回滚。
+
+检查 \texttt{RowsAffected} 防止活动不存在时仍把占座当成成功。外键通常会让前面的插入先失败，但显式检查更新数量仍使函数逻辑完整。
+
+事务保证两次写入原子提交，却\emph{没有}解决并发超卖。两个事务仍可能从服务层收到相同的绝对值，然后后提交者覆盖先提交者，也就是丢失更新。事务是工具，不是“自动正确”按钮；必须配合正确 SQL 和隔离策略。
+
+\begin{infobox}{事务保证了什么，没保证什么}
+本章事务保证“占座行与活动计数不会只写一半”。它没有保证服务此前读取的活动仍是最新版本，也没有在更新时检查剩余容量。下一章会把容量竞争放进一条条件 \texttt{UPDATE}，由 PostgreSQL 决定谁拿到最后的席位。
+\end{infobox}
+
+\section{组装两个可执行程序}
+
+所有组件都准备好了。Go 的 \path{cmd} 目录让迁移器和 API 拥有各自 \texttt{main} 包，却共享同一组内部包。
+
+\subsection{迁移命令}
+
+\path{cmd/migrate/main.go} 打开数据库、设置二十秒超时并调用迁移器：
+
+\begin{gocode}[title={代码清单 12.45 \texttt{cmd/migrate/main.go}：运行迁移}]
+func run() error {
+    databaseURL := getenv(
+        "DATABASE_URL",
+        "postgres://seatkeeper:seatkeeper@localhost:5432/"+
+            "seatkeeper?sslmode=disable",
+    )
+    db, err := sql.Open(pgdriver.DriverName, databaseURL)
+    if err != nil {
+        return err
+    }
+    defer db.Close()
+
+    ctx, cancel := context.WithTimeout(
+        context.Background(), 20*time.Second,
+    )
+    defer cancel()
+    if err := db.PingContext(ctx); err != nil {
+        return fmt.Errorf("connect to database: %w", err)
+    }
+    if err := platformmigrate.Up(
+        ctx, db, migrations.Files,
+    ); err != nil {
+        return err
+    }
+    fmt.Println("database is up to date")
+    return nil
+}
+\end{gocode}
+
+\texttt{main} 只负责把错误打印到标准错误并以非零状态退出。实际逻辑放在返回 error 的 \texttt{run} 中，更容易测试，也让 defer 在 \texttt{run} 返回时正常执行。
+
+\subsection{API 命令}
+
+API 入口打开 Store，构造 Service 和 HTTP handler，再配置标准库服务器：
+
+\begin{gocode}[title={代码清单 12.46 \texttt{cmd/seatkeeper-api/main.go}：组装应用}]
+func run(logger *slog.Logger) error {
+    ctx, cancel := context.WithTimeout(
+        context.Background(), 10*time.Second,
+    )
+    defer cancel()
+
+    databaseURL := getenv("DATABASE_URL",
+        "postgres://seatkeeper:seatkeeper@localhost:5432/"+
+            "seatkeeper?sslmode=disable")
+    store, err := postgres.Open(ctx, databaseURL)
+    if err != nil {
+        return err
+    }
+    defer store.Close()
+
+    service := booking.NewService(store)
+    handler := httpapi.New(service, logger)
+    server := &http.Server{
+        Addr:              getenv("HTTP_ADDR", ":8080"),
+        Handler:           handler,
+        ReadHeaderTimeout: 5 * time.Second,
+        ReadTimeout:       10 * time.Second,
+        WriteTimeout:      15 * time.Second,
+        IdleTimeout:       60 * time.Second,
+    }
+
+    logger.Info("SeatKeeper API listening",
+        "address", server.Addr)
+    if err := server.ListenAndServe();
+        !errors.Is(err, http.ErrServerClosed) {
+        return fmt.Errorf("serve HTTP: %w", err)
+    }
+    return nil
+}
+\end{gocode}
+
+这段代码是组合根（composition root），也是少数知道具体实现的地方。领域服务接收 PostgreSQL Store，因为 Store 实现了 repository；HTTP 适配器再接收领域服务，因为后者实现了它需要的用例接口。
+
+服务器设置了基本超时，避免慢客户端无限占用连接。最后一章会重新审视这些超时，尤其是加入 SSE 长连接以后，统一 \texttt{WriteTimeout} 会产生问题。当前所有端点都是短请求，这组默认值适合本地演示。
+
+程序目前还没有优雅关闭信号处理。按 \texttt{Ctrl+C} 会终止进程，defer 不一定有机会完成所有清理。我们把完整 shutdown 生命周期留到发布章节；本章关注请求竖切面。
+
+\section{用 Docker Compose 启动完整系统}
+
+本地原生运行需要 PostgreSQL 和 \texttt{libpq}。最简单的完整体验是使用 Docker Compose。Compose 定义三个服务：PostgreSQL、一次性迁移器和 API。
+
+\begin{yamlcode}[title={代码清单 12.47 \texttt{docker-compose.yml}：本地拓扑}]
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: seatkeeper
+      POSTGRES_USER: seatkeeper
+      POSTGRES_PASSWORD: seatkeeper
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seatkeeper -d seatkeeper"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  migrate:
+    build: .
+    entrypoint: ["migrate"]
+    environment:
+      DATABASE_URL: postgres://seatkeeper:seatkeeper@postgres:5432/seatkeeper?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgres://seatkeeper:seatkeeper@postgres:5432/seatkeeper?sslmode=disable
+      HTTP_ADDR: :8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+\end{yamlcode}
+
+API 不只是等待 PostgreSQL 容器“已启动”，而是等待迁移命令成功完成；迁移器又等待数据库健康检查。这个顺序让首次启动更可重复。
+
+Compose 里的密码只适合本地开发。真实部署不能把生产密码提交到仓库，也不能禁用 TLS。配置和密钥管理属于最后一章的运行边界。
+
+多阶段 Dockerfile 先在 Go 镜像中编译，再把两个二进制复制到较小运行镜像，并使用非 root 用户。由于本章 driver 依赖 \texttt{libpq}，构建阶段安装开发包，运行阶段只安装共享库。
+
+启动系统：
+
+\begin{shellcode}[title={构建并启动 SeatKeeper}]
+> docker compose up --build -d
+[+] Running 4/4
+ [+] Network chapter12-seatkeeper_default  Created
+ [+] Container chapter12-seatkeeper-postgres-1  Healthy
+ [+] Container chapter12-seatkeeper-migrate-1   Exited
+ [+] Container chapter12-seatkeeper-api-1       Started
+\end{shellcode}
+\color{PocketInk}
+
+Compose 输出中的容器前缀会随目录名变化。先检查健康端点：
+
+\begin{shellcode}[]
+> curl -i http://localhost:8080/healthz
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+
+{"status":"ok"}
+\end{shellcode}
+\color{PocketInk}
+
+若 API 尚未启动，查看日志：
+
+\begin{shellcode}[]
+> docker compose logs migrate api
+migrate-1  | database is up to date
+api-1      | level=INFO msg="SeatKeeper API listening" address=:8080
+\end{shellcode}
+\color{PocketInk}
+
+\subsection{创建第一个活动}
+
+为了避免示例时间在读者运行时已经过去，用 shell 生成未来时间。GNU/Linux 与 macOS 的 \texttt{date} 参数不同，因此代码包的 \path{scripts/demo.sh} 负责兼容；这里用一个明确的占位符说明格式：
+
+\begin{shellcode}[title={创建活动}]
+> curl -i -X POST http://localhost:8080/v1/events \
+    -H 'Content-Type: application/json' \
+    -d '{
+      "name":"Go Concurrency Lab",
+      "starts_at":"2030-10-10T09:30:00Z",
+      "capacity":12
+    }'
+HTTP/1.1 201 Created
+Location: /v1/events/<EVENT_ID>
+Content-Type: application/json; charset=utf-8
+
+{"id":"<EVENT_ID>","name":"Go Concurrency Lab",...}
+\end{shellcode}
+\color{PocketInk}
+
+实际响应会包含随机 UUID 和服务器当前时间，因此示例使用 \texttt{<EVENT\_ID>}。不要把书里的 UUID 原样复制到下一条命令；从你的响应中取值，或直接运行 demo 脚本自动解析。
+
+列出活动：
+
+\begin{shellcode}[]
+> curl -s 'http://localhost:8080/v1/events?limit=10'
+{"events":[{"id":"<EVENT_ID>","capacity":12,
+"reserved_seats":0,"available_seats":12,...}]}
+\end{shellcode}
+\color{PocketInk}
+
+\subsection{占住两个座位}
+
+\begin{shellcode}[title={创建一笔限时占座}]
+> curl -i -X POST \
+    http://localhost:8080/v1/events/<EVENT_ID>/reservations \
+    -H 'Content-Type: application/json' \
+    -d '{
+      "customer_name":"Ada Lovelace",
+      "customer_email":"ada@example.com",
+      "seats":2
+    }'
+HTTP/1.1 201 Created
+Location: /v1/reservations/<RESERVATION_ID>
+Content-Type: application/json; charset=utf-8
+
+{"id":"<RESERVATION_ID>","event_id":"<EVENT_ID>",
+"status":"held","seats":2,"expires_at":"..."}
+\end{shellcode}
+\color{PocketInk}
+
+再次读取活动，\texttt{reserved\_seats} 应为 2，\texttt{available\_seats} 应为 10：
+
+\begin{shellcode}[]
+> curl -s http://localhost:8080/v1/events/<EVENT_ID>
+{"id":"<EVENT_ID>","capacity":12,
+"reserved_seats":2,"available_seats":10,...}
+\end{shellcode}
+\color{PocketInk}
+
+读取占座：
+
+\begin{shellcode}[]
+> curl -s http://localhost:8080/v1/reservations/<RESERVATION_ID>
+{"id":"<RESERVATION_ID>","customer_name":"Ada Lovelace",
+"customer_email":"ada@example.com","seats":2,"status":"held",...}
+\end{shellcode}
+\color{PocketInk}
+
+\subsection{观察失败响应}
+
+尝试请求二十个座位：
+
+\begin{shellcode}[]
+> curl -i -X POST \
+    http://localhost:8080/v1/events/<EVENT_ID>/reservations \
+    -H 'Content-Type: application/json' \
+    -d '{"customer_name":"Grace Hopper",
+         "customer_email":"grace@example.com","seats":20}'
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/json; charset=utf-8
+
+{"error":{"code":"validation_error",
+"message":"request validation failed",
+"fields":{"seats":"must be between 1 and 10"}}}
+\end{shellcode}
+\color{PocketInk}
+
+再试一个未知字段：
+
+\begin{shellcode}[]
+> curl -i -X POST http://localhost:8080/v1/events \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"Go Night","starts_at":"2030-10-10T09:30:00Z",
+         "capacity":12,"capcity":99}'
+HTTP/1.1 400 Bad Request
+
+{"error":{"code":"invalid_json",
+"message":"decode JSON: json: unknown field \"capcity\""}}
+\end{shellcode}
+\color{PocketInk}
+
+错误信息让拼写问题立即可见。严格输入有时会降低“宽容”，却能在客户端开发阶段更快暴露契约偏差。
+
+\section{建立分层测试策略}
+
+到目前为止，我们已经使用领域测试和 HTTP 测试。PostgreSQL 适配器还需要真实数据库验证，因为 fake 无法证明 SQL 类型、约束和事务。不同测试层解决不同风险，没有哪一层可以包办一切。
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\sffamily\small]
+  \fill[PocketTeal!12] (-5,0) -- (5,0) -- (3.9,1.4) -- (-3.9,1.4) -- cycle;
+  \fill[PocketGold!22] (-3.9,1.55) -- (3.9,1.55) -- (2.7,2.95) -- (-2.7,2.95) -- cycle;
+  \fill[PocketCoral!18] (-2.7,3.1) -- (2.7,3.1) -- (1.35,4.5) -- (-1.35,4.5) -- cycle;
+  \draw[PocketTealDark,thick] (-5,0) -- (5,0) -- (3.9,1.4) -- (-3.9,1.4) -- cycle;
+  \draw[PocketGold,thick] (-3.9,1.55) -- (3.9,1.55) -- (2.7,2.95) -- (-2.7,2.95) -- cycle;
+  \draw[PocketCoral,thick] (-2.7,3.1) -- (2.7,3.1) -- (1.35,4.5) -- (-1.35,4.5) -- cycle;
+  \node at (0,0.68) {领域与服务单元测试：快、数量多、定位精确};
+  \node at (0,2.22) {HTTP 契约测试：路由、JSON、状态码、响应头};
+  \node[align=center] at (0,3.78) {PostgreSQL 集成测试：\\真实 SQL、约束、事务};
+\end{tikzpicture}
+\caption{本章测试金字塔}
+\label{fig:seatkeeper-test-pyramid}
+\end{figure}
+
+底层测试最多、最快；越靠上越接近真实基础设施，运行成本也越高。这里的“金字塔”不是要求精确比例，而是提醒我们不要把每个字段验证都交给一个需要启动数据库和容器的端到端测试。
+
+\subsection{PostgreSQL round-trip 集成测试}
+
+集成测试使用 build tag，只有显式要求时才编译运行：
+
+\begin{gocode}[title={代码清单 12.48 \texttt{store\_integration\_test.go}：真实数据库往返}]
+//go:build integration && cgo
+
+func TestStoreRoundTrip(t *testing.T) {
+    databaseURL := os.Getenv("SEATKEEPER_TEST_DATABASE_URL")
+    if databaseURL == "" {
+        t.Skip("set SEATKEEPER_TEST_DATABASE_URL " +
+            "to run PostgreSQL integration tests")
+    }
+
+    ctx, cancel := context.WithTimeout(
+        context.Background(), 30*time.Second,
+    )
+    defer cancel()
+    db, err := sql.Open(pgdriver.DriverName, databaseURL)
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer db.Close()
+
+    if err := platformmigrate.Up(
+        ctx, db, migrations.Files,
+    ); err != nil {
+        t.Fatal(err)
+    }
+    if _, err := db.ExecContext(ctx,
+        "TRUNCATE reservations, events CASCADE"); err != nil {
+        t.Fatal(err)
+    }
+
+    store := NewStore(db)
+    // Create an event, create a reservation, then read both back.
+    // The complete assertions are included in the code bundle.
+}
+\end{gocode}
+
+测试使用专用环境变量，避免误连日常数据库。它会清空本章两张表，因此 README 明确要求使用一次性开发数据库。任何会 \texttt{TRUNCATE} 的测试，都不应靠“大家应该知道”来保证安全。
+
+完整测试创建容量 20 的活动，再创建两席占座，最后断言活动的 \texttt{ReservedSeats} 为 2，并检查占座邮箱。它同时验证迁移、插入、更新、查询和时间/UUID 扫描。
+
+启动 Compose 后运行：
+
+\begin{shellcode}[title={运行 PostgreSQL 集成测试}]
+> export SEATKEEPER_TEST_DATABASE_URL='postgres://seatkeeper:seatkeeper@localhost:5432/seatkeeper?sslmode=disable'
+> CGO_ENABLED=1 go test -tags=integration ./internal/postgres
+ok      example.com/seatkeeper/internal/postgres  0.03s
+\end{shellcode}
+\color{PocketInk}
+
+耗时会变化。若变量未设置，测试会明确跳过，而不是在开发者机器上猜一个数据库地址。
+
+\subsection{运行全部静态和动态检查}
+
+代码包的 Makefile 提供常用命令：
+
+\begin{shellcode}[title={本章 checkpoint 检查}]
+> make fmt
+> make vet
+> make test
+> make test-race
+> make build
+\end{shellcode}
+\color{PocketInk}
+
+它们分别承担不同职责：
+
+\begin{description}
+  \item[\texttt{gofmt}] 统一格式，减少无意义差异。
+  \item[\texttt{go vet}] 检查编译器之外的一批可疑模式，例如格式化参数错误。
+  \item[\texttt{go test}] 运行普通单元和 HTTP 测试。
+  \item[\texttt{go test -race}] 运行时检测进程内共享内存数据竞争。
+  \item[\texttt{go build}] 编译所有包和命令，发现测试路径未覆盖的构建问题。
+\end{description}
+
+\begin{warningbox}{race detector 不会发现数据库超卖}
+\texttt{go test -race} 观察的是同一 Go 进程里的内存访问。两个请求分别使用数据库连接、执行逻辑上冲突的 SQL，即使没有任何 Go 内存数据竞争，也可能超卖。数据库并发问题需要真实数据库上的并发测试和正确 SQL；这正是下一章的开场。
+\end{warningbox}
+
+本章 fake repository 使用互斥锁，因此 race detector 不会被测试替身自身的 map 竞争干扰。请注意，这不等于真实 PostgreSQL 算法安全；测试工具只能回答它被设计来回答的问题。
+
+\section{让 OpenAPI 与实现保持同一故事}
+
+\path{api/openapi.yaml} 使用 OpenAPI 3.1 描述路径、参数、请求体、响应和 schema。下面是创建活动的核心片段：
+
+\begin{yamlcode}[title={代码清单 12.49 \texttt{openapi.yaml}：创建活动契约}]
+/v1/events:
+  post:
+    operationId: createEvent
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CreateEvent'
+    responses:
+      '201':
+        description: Event created.
+        headers:
+          Location:
+            schema: {type: string}
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Event'
+      '400':
+        $ref: '#/components/responses/InvalidJSON'
+      '422':
+        $ref: '#/components/responses/ValidationError'
+\end{yamlcode}
+
+schema 还声明名称长度、容量范围、UUID 格式和日期时间格式：
+
+\begin{yamlcode}[]
+CreateEvent:
+  type: object
+  additionalProperties: false
+  properties:
+    name: {type: string, minLength: 3, maxLength: 120}
+    starts_at: {type: string, format: date-time}
+    capacity: {type: integer, minimum: 1, maximum: 1000}
+  required: [name, starts_at, capacity]
+\end{yamlcode}
+
+\texttt{additionalProperties: false} 与 \texttt{DisallowUnknownFields} 表达同一严格输入策略。文档、运行时代码和测试应该讲同一个故事；若三者不一致，客户端只会遇到最严格或最偶然的那一个版本。
+
+本章没有引入代码生成，因此 OpenAPI 仍需要人工同步。最后的审校清单会逐项比对路径、状态码和字段。真实团队还可以在 CI 中运行 schema 校验、契约测试或生成客户端。
+
+\subsection{一次完整请求经历了什么}
+
+现在回看创建占座的全过程：
+
+\begin{enumerate}
+  \item \texttt{ServeMux} 用方法和路径找到 \texttt{createReservation}；
+  \item handler 从路径读取活动 ID，严格解码 JSON；
+  \item handler 把传输结构转换成 \texttt{CreateReservationInput}，传入请求 context；
+  \item Service 规范化和验证输入，从 Repository 读取活动；
+  \item Service 检查开始时间与可用席位，生成 ID、状态和过期时间；
+  \item PostgreSQL Store 开启事务，插入占座并更新活动计数；
+  \item 错误逐层包装和分类，成功值逐层转换成 JSON；
+  \item handler 设置 \texttt{Location} 并返回 \texttt{201 Created}。
+\end{enumerate}
+
+每一层都做自己最擅长的翻译：HTTP 翻译传输，服务翻译用例，存储翻译 SQL。没有一层能完全独立交付功能，但每层都能单独测试关键行为。
+
+\section{检查第一版的边界}
+
+一个能够运行的系统不等于一个已经解决所有问题的系统。把限制写清楚，是工程工作的一部分，也是后续章节的路线图。
+
+\subsection{并发请求可能丢失更新}
+
+假设活动容量为 12，当前已占 10。请求 A 与请求 B 都想占 2 席：
+
+\begin{enumerate}
+  \item A 读取 \texttt{reserved\_seats=10}；
+  \item B 也读取 \texttt{reserved\_seats=10}；
+  \item A 判断还有 2 席，构造占座，把新值算成 12；
+  \item B 也判断还有 2 席，把新值算成 12；
+  \item 两笔占座都插入，各有 2 席，但活动最终计数仍可能只是 12。
+\end{enumerate}
+
+这不仅可能超卖，还可能让计数低于占座总数。事务没有自动发现服务读取的值已经过时。下一章会先写并发集成测试，让多个请求争夺容量为 5 的活动，再把更新改成条件原子语句。
+
+\begin{sqlcode}[]
+UPDATE events
+SET reserved_seats = reserved_seats + $1
+WHERE id = $2
+  AND capacity - reserved_seats >= $1;
+\end{sqlcode}
+
+届时，\texttt{RowsAffected=1} 表示拿到席位，\texttt{0} 表示容量不足或活动不存在。数据库将成为竞争的裁判，而不是接收应用层算好的旧答案。
+
+\subsection{客户端重试可能重复占座}
+
+移动网络可能在服务器提交成功后、响应到达客户端前断开。客户端只看到超时，于是重试同一请求。本章会创建第二笔占座并再次扣减席位，因为请求没有幂等键。下一章会引入 \texttt{Idempotency-Key}、用户作用域和请求指纹。
+
+仅增加唯一键还不够：相同键若配上不同请求体，必须返回冲突；幂等记录还需要保留期和并发处理。这些问题值得一整节，而不是本章末尾匆忙加一列。
+
+\subsection{hold 不会自动释放}
+
+\texttt{expires\_at} 已经写入数据库，但没有 worker 扫描并释放过期席位。系统当前只是记录“理论上何时过期”，不会主动改变状态。第 15 章会实现有界并发后台任务，并让多个 worker 重复看到同一行时仍然安全。
+
+\subsection{缺少认证与授权}
+
+任何能访问 API 的客户端都可以创建活动，也可以读取包含邮箱的占座。这当然不适合公网。认证、角色权限和个人数据保护没有被本项目假装解决；若要部署真实系统，应在开放网络前补上这些能力，并重新审视哪些字段应该返回。
+
+\subsection{健康检查只回答“进程活着”}
+
+\texttt{/healthz} 不检查数据库。API 进程可能返回 200，但每个业务请求都因数据库断开而失败。最终章节会区分 liveness 和 readiness，并给依赖检查设置短超时。
+
+\subsection{日志和关机仍然简化}
+
+当前日志只记录方法与路径，不记录状态码、耗时或请求 ID；程序也没有捕获终止信号并调用 \texttt{Server.Shutdown}。这些属于发布阶段，而不是本章偷偷塞进 \texttt{main.go} 的彩蛋。
+
+\begin{tipbox}{明确非目标会提高可信度}
+实战化不等于把所有生产功能一次写完。更可信的做法是说明当前 checkpoint 能保护什么、不能保护什么、下一步用什么测试推动改进。隐藏限制只会让示例看起来完整，直到读者真的运行它。
+\end{tipbox}
+
+\section{本章 checkpoint}
+
+完成本章后，仓库应至少包含以下交付物：
+
+\begin{itemize}
+  \item \path{cmd/seatkeeper-api}：REST API 可执行程序；
+  \item \path{cmd/migrate}：向前应用 SQL 迁移的命令；
+  \item \path{internal/booking}：领域类型、错误、用例服务和单元测试；
+  \item \path{internal/httpapi}：路由、严格 JSON、错误映射和 handler 测试；
+  \item \path{internal/postgres}：PostgreSQL repository 与带 build tag 的集成测试；
+  \item \path{migrations/000001_initial.sql}：活动与占座 schema；
+  \item \path{api/openapi.yaml}：OpenAPI 3.1 契约；
+  \item \path{Dockerfile}、\path{docker-compose.yml} 和 \path{scripts/demo.sh}：可重复演示环境；
+  \item \path{README.md}：构建、测试、启动和已知限制。
+\end{itemize}
+
+建议把这个状态保存为 Git tag：
+
+\begin{shellcode}[]
+> git add .
+> git commit -m 'build the first SeatKeeper REST API'
+> git tag chapter-12-rest-postgres
+\end{shellcode}
+\color{PocketInk}
+
+课程设计的原编号是“第 13 章基础系统”，本次按中文合并稿要求编为第 12 章，因此 tag 也使用 12。后续章节应从这个干净 checkpoint 开始，而不是从作者已经提前完成所有功能的最终分支倒推。
+
+\section{支线任务}
+
+下面的练习不属于主线 checkpoint。先确保本章测试和演示都能运行，再选择一两项扩展。
+
+\begin{enumerate}
+  \item \textbf{增加按开始时间过滤。}为 \texttt{GET /v1/events} 增加 \texttt{from} 查询参数。HTTP 层解析 RFC3339，服务层验证，repository 在 SQL 中加入条件。为无效时间和边界时间写测试。
+  \item \textbf{隐藏参加者邮箱。}新增一个只返回占座公开字段的 response view，避免直接序列化领域实体。思考“读取自己的占座”和“公开读取”需要怎样的认证信息。
+  \item \textbf{给迁移器增加 dry-run。}打印即将执行的版本和语句，但不提交。注意当前简单分号解析器的限制，不要声称它适合任意 PostgreSQL 函数体。
+  \item \textbf{添加示例测试。}为 \texttt{Event.AvailableSeats} 编写 \texttt{ExampleEvent\_AvailableSeats}，让 \texttt{go test} 同时验证文档输出。
+  \item \textbf{生成 OpenAPI 客户端。}选择一个工具生成 Go 客户端，比较生成类型与手写领域类型的职责。不要让生成代码进入 \path{internal/booking}，它属于外部契约适配层。
+\end{enumerate}
+
+\section*{小结}
+\addcontentsline{toc}{section}{小结}
+
+本章把一个共享表格里的真实混乱，变成了可以运行和继续演进的 SeatKeeper 第一版。
+
+我们先从客户端视角定义 REST 资源、JSON、状态码和统一错误包络。随后用活动、占座、自定义 ID 和领域错误表达系统语言。应用服务负责规范化输入、验证规则、计算 hold 过期时间并协调 repository；时钟和 ID 生成器通过函数式选项注入，使测试稳定而快速。
+
+HTTP 适配器使用 Go 1.22 之后的 \texttt{ServeMux} 方法/路径模式，严格限制和解码 JSON，把领域错误映射为一致的 HTTP 响应。\texttt{httptest} 让路由、状态码、响应头和 JSON 契约无需真实端口也能验证。
+
+PostgreSQL schema 使用显式迁移、外键、检查约束、确定顺序的索引和部分索引。存储适配器通过 \texttt{database/sql} 执行参数化查询，在一个事务中插入占座并更新活动计数，并把 SQLSTATE 翻译成领域错误。迁移文件嵌入独立命令，Docker Compose 按数据库健康、迁移成功、API 启动的顺序建立本地环境。
+
+测试被分成三层：领域/服务单元测试、HTTP 契约测试、真实 PostgreSQL 集成测试。\texttt{gofmt}、\texttt{go vet}、普通测试、race detector 和 build 各自检查不同风险。我们也明确记录了第一版的边界：它在顺序请求下正确，却还不能抵抗最后席位的并发竞争，也不能让客户端安全重试。
+
+下一章会从一个失败的并发测试开始。多个 goroutine 将同时请求少量席位，旧实现会露出“先读再写”的窗口。我们会把容量规则推进数据库，加入条件原子更新、事务幂等、状态机和 ETag。到那时，SeatKeeper 不只会接受请求，还会在流量真正挤到门口时守住那十二把椅子。

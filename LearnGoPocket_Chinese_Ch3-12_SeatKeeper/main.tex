@@ -1,0 +1,57 @@
+% Learn Go with Pocket-Sized Projects — 中文辅助阅读版
+% 涵盖原书第 3–12 章（part01–part09 + chapter10 + chapter11 + chapter12）
+\documentclass[11pt,openany]{book}
+\usepackage{styles/pocketbook}
+\begin{document}
+\frontmatter
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+{\Huge\bfseries Learn Go with Pocket-Sized Projects\\[0.8cm]
+袖珍项目学 Go}\\[1.2cm]
+{\Large 中文辅助阅读版}\\[2cm]
+{\large 原著：Aliénor Latour\\
+Jonas Huwyler\\
+Philipp Reinhard}\\[1cm]
+{\large Manning Publications}\\[3cm]
+{\normalsize 本译本仅供辅助阅读学习使用，请支持正版原书}\\[0.5cm]
+{\normalsize 第 3--11 章中文辅助译文 + 第 12 章原创续写}\\[2cm]
+\vfill
+\end{titlepage}
+
+% ================= 编校说明 =================
+\chapter*{编校说明}
+\addcontentsline{toc}{chapter}{编校说明}
+
+本书第 3--11 章为《Learn Go with Pocket-Sized Projects》（Manning, 2024）的中文辅助阅读译文；第 12 章为沿用原书教学风格、基于 SeatKeeper 课程设计撰写的原创续写。编译与编校遵循以下约定：
+
+\begin{itemize}
+  \item \textbf{来源边界}：第 3--11 章按原书顺序翻译并保留讲解、旁注、示例与幽默表述；第 12 章为原创连续项目正文，不冒充原书内容。原书中明确的排版、API 名称或可编译性错讹，经核对后作必要修正，并单独记录在 \path{review/} 目录。
+  \item \textbf{代码与清单}：代码保持英文，不翻译标识符和注释；仅对原书中会妨碍阅读或运行的显见错讹作最小修正。清单标题译为``代码清单 N.M''；行内标记 \texttt{\#N} 为原文注释标记，其对应中文注释列于清单下方。
+  \item \textbf{终端会话}：命令行会话以等宽字体呈现，提示符 \texttt{>} 等保持原样。
+  \item \textbf{术语}：首次出现时附英文原文，如``哨兵错误（sentinel error）''；惯用英文的词（goroutine、race、benchmark 等）保留英文。
+  \item \textbf{图}：图注译为``图 N.M''；代码中的图（源码渲染图）以清单形式呈现。
+  \item \textbf{审校备注}：编辑加工过程中的校对备注不混入正文，单独存放于 review/ 目录。
+\end{itemize}
+
+\tableofcontents
+\mainmatter
+
+\setcounter{page}{1}
+
+% 第 3--9 章沿用 revised 工程中的 part01--part09；第 10--12 章为新增/续写正文
+\setcounter{chapter}{2}
+\input{chapters/part01_p001_039}
+\input{chapters/part02_p040_079}
+\input{chapters/part03_p080_118}
+\input{chapters/part04_p119_154}
+\input{chapters/part05_p155_191}
+\input{chapters/part06_p192_231}
+\input{chapters/part07_p001_052}
+\input{chapters/part08_p053_127}
+\input{chapters/part09_p128_194}
+\input{chapters/chapter10_habits_grpc}
+\input{chapters/chapter11_html_grpc_client}
+\input{chapters/chapter12_seatkeeper_api}
+
+\end{document}

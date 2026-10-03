@@ -1,0 +1,949 @@
+% SOURCE_PDF_PAGE: 080
+阅读日志时，我们怎样才能知道每条消息属于哪个级别呢？好吧，就把它作为一道练习加进去。
+
+\begin{infobox}{支线任务 4.5}
+在输出中加入日志级别。提示：像我们添加当前时间时那样，在打印之前修改 \texttt{format} 变量的内容。
+\end{infobox}
+
+\subsection{导出通用日志函数}
+
+我们从一开始就选择按照日志级别的数量导出同样多的函数，让用户的代码更易读。现在，设想这样一种情形：只有在运行时你才知道该选择哪个级别。你要记录应用用户的电子邮件地址，但在某个平台上，所有用户都是内部人员，管理员需要知道谁做了什么；而在另一个平台上，电子邮件地址受数据保护法律约束，即使发生错误也不应出现在日志中。你决定把这项信息放进应用配置，并希望将它直接传给日志记录器；但你不能修改整个应用的日志级别，因为那样可能会丢弃一些无关却重要的消息。为此，我们可以添加一个导出的 \texttt{Logf()} 函数，把日志级别作为它的第一个参数。
+
+\begin{gocode}[title={代码清单 4.16 \texttt{logger.go}：导出的 \texttt{Logf} 函数}]
+// Logf 会在日志级别足够高时格式化并打印一条消息。
+func (l *Logger) Logf(lvl Level, format string, args ...any) {
+    if l.threshold > lvl {
+        return
+    }
+
+    l.logf(format, args...)
+}
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 081
+既然如此，为什么不重构一下，让其他所有导出方法都只调用这个函数呢？当然，同时提供这两种选项会让 API 更加杂乱，也更难理解和维护。而且，用户总能用一个简单的 \texttt{switch} 写出自己的函数，并使用在其自身领域中定义的变量。
+
+\begin{infobox}{支线任务 4.6}
+为这个方法添加一个测试。
+\end{infobox}
+
+\section{日志记录：最佳实践}
+
+现在我们已经完成了这个库，希望你会使用并分享它，因此也许有必要给出一些建议。我们想记录哪类信息？想以多高的频率记录？日志记录是一门权衡的艺术，因为需要考虑两个因素：日志能在多大程度上帮助理解错误，以及日志存储的高昂成本。
+
+日志是程序过去执行过程的痕迹。一旦出现了对日志的需求（通常是在产生“此时 \texttt{count} 的值是多少？”或“处理这个请求花了多长时间？”之类的问题时），妥善保存这些日志的需求也随之登场。无论日志存储在文件、数据库、云端存储桶还是任何其他地方，持久化日志都要花钱。日志越多，就越容易弄清哪里出了问题并迅速修复，但代价也越高。
+
+每家公司对于哪些内容应该记录、哪些不应该记录，以及应当把它们归入什么级别，
+% SOURCE_PDF_PAGE: 082
+都有自己的政策。不过，下面这些建议是相通的。
+
+\subsubsection*{编写清晰的消息}
+
+虽然在函数内部不作任何进一步说明，只记录“步骤 1”“步骤 2”等内容，可能非常诱人，但到了第二天，这些消息并不能帮到你。想一想步骤 1 中到底发生了什么：文档插入数据库了吗？电子邮件发出去了吗？请写清楚消息，帮一帮未来的自己。当一个函数只有一种可能的执行流程时，日志消息唯一的价值，只是让人安心地确认我们已经完成了这段或那段逻辑。此时有价值的信息包括函数处理耗时，或其他类似内容。
+
+\subsubsection*{避免过长的消息}
+
+写入日志的数据量与保存这些消息所花的钱直接相关。如果你的变量是一个映射，其中可能有数千个键，那么打印整个映射会很昂贵。记录它的大小，或者某个特定键是否存在，难道不会同样有价值吗？如果你的数据是图像的一部分或一段歌曲录音，日志记录器并不是保存待处理字节副本的地方。相反，应该编写一个函数来保存图像或歌曲。
+
+% SOURCE_PDF_PAGE: 083
+\begin{infobox}{支线任务 4.7}
+确保记录的消息不超过 1,000 个字符（或者 1,000 字节——由你决定），更进一步，还可以把这个上限设为可选配置。如果消息将会更长且限制已启用，就裁掉末尾部分，保证所有日志消息都有合理的大小。
+\end{infobox}
+
+\subsubsection*{在关键节点记录日志，并留意循环与递归}
+
+函数可能很复杂，横跨数百行。发生这种情况时，最重要的问题是找出哪些部分确实值得记录日志，哪些根本不值得。如果因为没有找到可处理的项目而提前返回，我们应该把这件事记录下来吗？也许不用，但我们总可以记录找到的项目数量。
+
+从数据库取回项目并在循环中逐一处理时，我们想知道当前处理到了 81,543 项中的第 5,567 项，然后是第 5,568 项，依此类推吗？如果正常流程并不需要如此细致的信息，也许我们只需每处理 10,000 项记录一条消息，从而大致了解这份庞大数据列表已经处理了多少。
+
+\subsubsection*{学会信任代码}
+
+日志不应成为调试代码的工具。大多数时候，当你挠着头想弄明白某个函数的输入在取某个值时到底发生了什么，原因都是代码不够清晰。解决这个问题有三种方法：
+
+% SOURCE_PDF_PAGE: 084
+\begin{itemize}
+  \item 编写更清晰的代码。把逻辑块拆成更多、更小的函数。
+  \item 编写更好的文档。使用注释、变量名等手段。
+  \item 编写更多测试。错误不会发生在正常路径上；它们发生在出了问题的时候。确保尽可能多地覆盖边界场景。
+\end{itemize}
+
+\subsubsection*{结构化消息}
+
+在现代世界中，大多数日志并不是由人处理的。读取它们的主要是程序，这些程序利用日志生成显示在仪表板上的信息——例如，展示一段时间内每分钟发生的错误数，或者处理一个请求所花的时间。
+
+为此，我们需要告诉这些计算机如何解析日志——哪部分信息有价值，哪部分不应纳入考虑，等等。最简单的解决方案，就是把日志消息格式化成结构化实体。一种常见的结构化日志消息格式是 JSON（为了便于人类阅读，这里分成多行显示）：
+
+\begin{gocode}[]
+{
+    "time": "2022-31-10 23:06:30.148845Z",
+    "level": "warning",
+    "message": "platform not scaled up for request"
+}
+\end{gocode}
+
+一些现有的日志库还提供了多种附加功能。其中一个例子，是允许用户把自己的一组键和值加入日志消息。
+
+% SOURCE_PDF_PAGE: 085
+\begin{infobox}{支线任务 4.8}
+更新日志函数，使其按本节讨论的格式打印日志（目前可以忽略 \texttt{"time"} 部分，因为要在测试中验证它还需要一些我们尚未讲到的内容）。这需要使用 \texttt{encoding/json} 包及其中的 \texttt{Marshal} 函数。这个函数必须在一个新类型上调用；我们会把该类型定义成一个包含 \texttt{Level} 和 \texttt{Message} 的结构体。使用 \texttt{Marshal}（或 \texttt{Unmarshal}）函数时，最常见的陷阱之一，就是忘记 \texttt{json} 包需要访问结构体的字段。新手很容易把这些字段保持为未导出状态，但这恰恰会使负责读写它们的函数也无法访问它们。开始实现服务时，我们会进一步讲解这一点。（这道支线任务中的概念将在第 5 章解释。）
+\end{infobox}
+
+\section*{总结}
+
+\begin{itemize}
+  \item Go 中的库是一个包，其中包含客户端可以直接使用的导出类型和函数（也就是它的 API）。
+  \item 库应当只导出用户所必需的内容，把内部细节隐藏起来，以保持简洁和封装。
+  \item 在库中使用明确的名称，并复用熟悉的模式或现有的函数签名，让用户可以凭直觉使用它。
+  \item 定义领域专用类型，而不要依赖 \texttt{int} 或 \texttt{string} 等基本类型，这样可提高可读性和可维护性。例如，用 \texttt{UserID} 类型替代 \texttt{int}，可以让代码更清晰。
+% SOURCE_PDF_PAGE: 086
+  \item 定义具有少量、有限个可能取值的类型（例如状态或模式）时，使用带 \texttt{iota} 的枚举。这种做法可确保类型安全和可读性。
+  \item 实现 \texttt{New()} 方法，可以强制要求在对象初始化时提供必需参数，从而保证用户获得整洁一致的设置。
+  \item 使用函数式选项模式初始化可选字段，或为结构体字段设置默认值；这样既能提高灵活性，又可避免构造函数过多。
+  \item 实现和测试库时，应依靠黑盒测试通过公共 API 验证行为，而不是依赖内部细节，从而实现健壮且面向客户端的设计。
+  \item 编写较小的文件，让代码更易于浏览和阅读，尤其是在大型项目中。把逻辑上不同的部分拆分到不同文件，可以提高可维护性。
+  \item 有选择地记录日志。专注于记录有意义的信息，避免不必要的杂乱内容或敏感数据。
+\end{itemize}
+
+% SOURCE_PDF_PAGE: 087
+\chapter{Gordle：在终端里玩文字游戏}
+
+\textbf{本章内容}
+
+\begin{itemize}
+  \item 构建一个在终端中运行的游戏
+  \item 从标准输入中读取 rune
+  \item 从切片中取得一个随机数
+  \item 传播错误
+  \item 读取文本文件的内容
+\end{itemize}
+
+\begin{quote}
+\emph{克劳迪奥——说一句话吧，好朋友。卢西奥，我有句话对你说。}
+
+\emph{卢西奥——一百句都行，只要能对你有点好处。——威廉·莎士比亚，《一报还一报》}
+\end{quote}
+
+这一章讲的是一个爱情故事。2020 年疫情期间，热情的软件开发者 Wardle 先生为他的伴侣、文字游戏迷 Shah 女士创作了一款名为 Wordle 的新游戏。他把游戏介绍给亲友，看到它如此受欢迎后，决定将其发布。著名的 Wordle 游戏就这样开始了它的旅程，随后面向公众并如火箭般蹿红。如今每天都会发布一个新单词，世界各地大多数人都称它为“今日 Wordle”。它有许多变体，主题涵盖地理、数学、莎士比亚词汇、托尔金或泰勒·斯威夫特；世界各地还有更多不同语言的改编版（甚至跨越时空，提供古希腊语、昆雅语和克林贡语版本）。
+
+游戏相当简单：你必须在六次尝试内猜出一个由五个字符组成的单词。每次尝试后，游戏
+% SOURCE_PDF_PAGE: 088
+都会针对每个字符告诉你，它是否属于答案，以及位置是否正确。
+
+本章的目标是创建我们自己的游戏，叫作 Gordle（只是玩了个文字梗）。它将是 Wordle 的可配置版本：官方版本的每个单词有五个字符，而我们的游戏既可以传入更长或更短的单词，也可以改变玩家游戏结束前允许尝试的次数。卢西奥将担任开发者，玩家克劳迪奥则会执行一条命令来启动游戏。在代码中，我们会一步步推进：先从一个简单函数开始，从输入读取内容并打印克劳迪奥的尝试。然后继续迭代，让游戏逐渐能够向玩家提供反馈。再加入一个语料库（单词列表），从中随机选择答案，让游戏更适合重复游玩。最后，我们会支持更多语言，并根据需要调整参数。
+
+为简单起见，这个版本只支持这样一些书写系统：其中一个字符绝不会需要超过一个 Unicode 码点。支持其他书写系统不在本章范围之内，但你可以在末尾的扩展内容中找到延伸思路。本项目需要完成以下任务：
+
+\begin{enumerate}
+  \item 编写一个程序，从列表中随机选择一个单词。
+  \item 从标准输入读取玩家的猜测。
+  \item 反馈字符的位置是否正确。
+  \item 如果玩家找到了正确单词，就识别其获胜；如果达到最大失败尝试次数，就识别其落败。
+\end{enumerate}
+
+% SOURCE_PDF_PAGE: 089
+\section{基础版 \texttt{main}}
+
+面对任何编程练习，默认做法总是把问题简化到绝对最简单的版本。以后我们有的是时间改进。首先从一个基础版 \texttt{main} 函数开始，其中的答案硬编码，只允许猜一次，程序会回答 \texttt{ok} 或 \texttt{not ok}。像前几章一样，我们先初始化模块：
+
+\begin{shellcode}[]
+> go mod init learngo-pockets/gordle
+\end{shellcode}
+
+然后，在 \texttt{main.go} 文件旁边创建一个与游戏同名的新包 \texttt{gordle}。我们将在这个包中实现游戏。项目结构如下：
+
+\begin{treebox}
+\PocketTreeLine{\textgreater{} tree}
+\PocketTreeLine{.}
+\PocketTreeLine{├── go.mod}
+\PocketTreeLine{├── gordle}
+\PocketTreeLine{│\hspace*{3em}└── files in package gordle}
+\PocketTreeLine{└── main.go}
+\end{treebox}
+
+\texttt{gordle} 包会导出一个 \texttt{Game} 结构体；我们将逐步向它添加构建完整游戏所需的方法。
+
+\subsection{迷你 \texttt{main}}
+
+卢西奥从最简单的地方开始：在 \texttt{gordle} 包中创建一个名为 \texttt{Game} 的空结构体。我们知道这个程序将需要 50 多行代码，因此把职责分散到多个文件是个好主意。与游戏有关的所有内容都会放在 \texttt{gordle} 包中。例如，我们知道必须把秘密单词保存在某处。这就引出了一个结构体，用来容纳游戏信息。
+
+% SOURCE_PDF_PAGE: 090
+\begin{gocode}[title={代码清单 5.1 \texttt{game.go}：\texttt{Game} 结构体}]
+// Game 保存玩一局 gordle 所需的全部信息。
+type Game struct{}
+\end{gocode}
+
+正如第 4 章的日志记录器所示，创建对象有多种方式。在代码清单 5.2 中，我们导出一个 \texttt{New()} 方法，把它作为进入库的推荐入口，并保证创建的 \texttt{Game} 对象具有全部依赖项。请注意，确保库行为正确是一种好习惯。
+
+按照惯例，\texttt{New()} 会返回指向 \texttt{Game} 的指针，这与 Go 内置函数 \texttt{new} 类似；后者也返回指针。
+
+\begin{gocode}[title={代码清单 5.2 \texttt{game.go}：使用 \texttt{New} 创建 \texttt{Game} 结构体}]
+// New 返回一个可用于 Play 的 Game！
+func New() *Game {
+    g := &Game{}
+
+    return g
+}
+\end{gocode}
+
+我们没有直接写 \texttt{return \&Game\{\}}，因为稍后会在 \texttt{return g} 这行之前添加一些代码来配置游戏。接下来，如代码清单 5.3 所示，我们为 \texttt{Game} 类型关联一个 \texttt{Play} 方法。\texttt{Play} 会运行游戏。在第一次实现中，先只打印说明。要在 Go 中为对象创建方法，需要在 \texttt{Game} 结构体上编写一个指针接收者。本章后面会进一步探讨这个主题。
+
+\begin{gocode}[title={代码清单 5.3 \texttt{game.go}：使用 \texttt{Play} 运行游戏}]
+// Play 运行游戏。
+func (g *Game) Play() {
+    fmt.Println("Welcome to Gordle!")
+
+    fmt.Printf("Enter a guess:\n")
+}
+\end{gocode}
+
+这些内容已经足以构成第一个版本。让我们在 \texttt{main} 函数中调用这些新方法。为此，需要导入
+% SOURCE_PDF_PAGE: 091
+\texttt{main.go} 文件中的 \texttt{gordle} 包：
+
+\begin{gocode}[]
+import (
+    "learngo-pockets/gordle/gordle"
+)
+\end{gocode}
+
+在 \texttt{main} 函数中，启动游戏需要两个步骤——创建一局新的 Gordle 游戏，然后启动它：
+
+\begin{gocode}[]
+func main() {
+    g := gordle.New()
+    g.Play()
+}
+\end{gocode}
+
+汇总后的 \texttt{main} 文件如下。
+
+\begin{gocode}[title={代码清单 5.4 \texttt{main.go}：\texttt{main} 函数和包}]
+package main
+
+import (
+    "learngo-pockets/gordle/gordle"
+)
+
+func main() {
+    g := gordle.New()
+    g.Play()
+}
+\end{gocode}
+
+完成这些初始步骤后，就可以运行程序并验证它的行为是否符合预期。趁着还没有往 \texttt{Game} 结构体中添加内容，现在也是把这些文件提交到你最喜欢的版本控制系统的好时机。现在，我们等待克劳迪奥猜测秘密单词！
+
+\subsection{读取玩家的输入}
+
+这是一个游戏，所以我们有一位玩家——克劳迪奥。让我们请他作出猜测。克劳迪奥可以使用键盘，我们会通过标准输入读取他的尝试。读到尝试后，就可以把它与答案比较。
+
+% SOURCE_PDF_PAGE: 092
+\subsubsection*{游戏结构}
+
+根据要读取的内容不同，从标准输入读取数据有多种方式。有些函数读取字节切片，有些读取字符串。在这里，玩家会输入字符，然后按 Enter 或 Return 键。因此，我们希望一直读取一行，直到遇到第一个行尾字符。
+
+\texttt{bufio} 包的 \texttt{Reader} 结构体提供了一个很有用的方法来完成这件事，文档将其描述为：“\texttt{ReadLine} 尝试返回一整行，但不包括行尾字节。”文档还说明，对于大多数读取场景，它并不是世界上最好的读取器；不过，从标准输入读取一个单词时，它非常合适。好消息是，\texttt{bufio.Reader} 实现了 \texttt{io.Reader} 接口！我们不想把解决方案设计得过度复杂。
+
+如代码清单 5.5 所示，\texttt{Game} 对象会保存一个指向 \texttt{bufio.Reader} 的指针。我们使用指针而不是普通对象，是因为 \texttt{bufio} 包导出的 \texttt{NewReader} 函数返回一个指向 \texttt{bufio.Reader} 的指针。此外，我们将频繁调用 \texttt{ReadLine}，因此最好从一开始就拥有一个与该方法接收者类型相同的变量——也就是指针。
+
+\begin{gocode}[title={代码清单 5.5 \texttt{game.go}：让 \texttt{Game} 使用读取器}]
+// Game 保存玩一局 gordle 所需的全部信息。
+type Game struct {
+    reader *bufio.Reader
+}
+\end{gocode}
+
+可是等等，我们怎样初始化这个读取器？应该把它作为 \texttt{New()} 函数的一部分吗？这当然是个有效选项，但很快就会发现，\texttt{NewReader} 本身需要一个 \texttt{io.Reader} 参数，那么这个参数又该从哪里来？因为 \texttt{io.Reader} 是一个非常简单的接口，我们可以向
+% SOURCE_PDF_PAGE: 093
+\texttt{New} 函数传入一个实现了它的变量，并在 \texttt{New} 内部创建 \texttt{bufio.Reader}。
+
+\begin{gocode}[title={代码清单 5.6 \texttt{game.go}：以读取器作为参数使用 \texttt{New}}]
+// New 返回一个可用于 Play 的 Game 变量！
+func New(playerInput io.Reader) *Game {
+    g := &Game{
+        reader: bufio.NewReader(playerInput),
+    }
+
+    return g
+}
+\end{gocode}
+
+在深入读取玩家输入之前，我们需要回答一个问题：Go 如何处理字符？
+
+如果想使用其他语言来玩，甚至使用英语游玩但单词来自其他语言，我们就需要 Unicode，以完整支持各种文字字符。拒绝 \emph{canapé}、\emph{façade}、\emph{dürüm}，甚至古老写法 \emph{rememberèd} 这样的单词，公平吗？
+
+Go 原生使用 Unicode。所有源文件都需要采用 UTF 编码，Go 甚至有一个专门的基本类型 \texttt{rune}，用于编码一个 Unicode 码点。
+
+例如，取 Go Playground 上默认出现的那一行，查看字符串长度（包括逗号和空格）：
+
+\begin{gocode}[]
+fmt.Println(len("Hello, 世界"))
+\end{gocode}
+
+这会打印 13。的确，这两个非拉丁字符各自需要 3 个字节的 UTF-8 编码。另一方面，
+
+\begin{gocode}[]
+fmt.Println(len([]rune("Hello, 世界")))
+\end{gocode}
+
+会输出 9。我们测量的是 rune 的数量，而不是编码它们所需的字节数。在遍历字符串元素时，请记住这一点：可以
+% SOURCE_PDF_PAGE: 094
+用 \texttt{[]byte(str)} 访问它的字节表示，也可以用 \texttt{[]rune(str)} 访问它的 rune 表示，后者是默认行为。下面的代码清单展示了如何显示这些不同的长度。
+
+\begin{gocode}[title={代码清单 5.7 打印字符串和 rune 的长度}]
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello, 世界")
+    fmt.Println(len("Hello, 世界"))
+    fmt.Println(len([]rune("Hello, 世界")))
+}
+\end{gocode}
+
+\begin{shellcode}[title={控制台输出}]
+Hello, 世界
+13
+9
+\end{shellcode}
+
+\subsubsection*{\texttt{ask} 方法}
+
+游戏设置好后，我们就有了一个能够从标准输入读取数据的变量。让我们礼貌地向克劳迪奥询问他的下一个单词。通过读取器取得玩家所给猜测这一功能，无须解释实现方式就能用一句话概括，因此非常适合放进一个函数。为了清晰简洁，我们把它称为 \texttt{ask}（见代码清单 5.8）。它需要从某个 \texttt{Game} 的读取器读取，所以 \texttt{ask} 方法会接收一个 \texttt{Game} 接收者。\texttt{ask} 方法还会返回一个 rune 切片——也就是玩家猜测的单词。这样可以确保我们得到有效的猜测。
+
+\begin{gocode}[title={代码清单 5.8 \texttt{game.go}：\texttt{ask} 方法签名}]
+// ask 会读取输入，直到得到（并返回）一个有效的猜测。
+func (g *Game) ask() []rune {
+    // ...
+}
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 095
+你可能已经注意到，这里使用了指针接收者。原因有两个。第一个很简单：我们会通过 \texttt{Game} 结构体的许多方法修改其状态，因此它们都需要指针接收者。为了保持一致性，避免在同一个类型上混用指针接收者方法和值接收者方法，是良好的 Go 实践。第二个原因稍微复杂一些，源于 \texttt{Game} 结构体有一个字段——\texttt{output} 字段——它是一个指针。附录 E 介绍了把值接收者与指针字段一起使用时可能产生的问题。
+
+在这个 \texttt{ask} 方法中，我们用读取器读取一行。如果发生错误，就用 \texttt{Fprintf} 将它打印出来；不过我们决定继续执行，等待下一次尝试。换句话说，某一行读取出错不会导致游戏崩溃，只会让它再次询问一个单词。\texttt{Fprintf} 让我们可以写入标准错误。
+
+完成 \texttt{Play} 方法时，我们会看到如何更好地处理错误。一个残酷的事实是：大多数时候，错误都不应被忽略。不过，当你决定一个错误不会阻塞程序时，正适合留下注释，向未来的自己解释这个决定。
+
+我们可以轻松检查单词长度。目前，我们使用与原版 Wordle 相同的参数，也就是五字符单词。可以在包级别定义一个常量，并在需要它的每个地方使用。
+
+常量有两个作用。第一个是迁就开发者的懒惰：复用常量后，如果数值改变，就不必更新多行代码。第二个作用，是给某个值赋予名称和用途（就像变量一样），让代码更清晰并避免输入错误：\texttt{connectionTimeout} 比
+% SOURCE_PDF_PAGE: 096
+\texttt{5*time.Minute} 更明确。所以，请不要把常量叫作 \texttt{time5minutes}。把一个值定义为常量，就是在毫不含糊地告诉代码读者：预计这个值不会变化。下面的代码清单给出了 \texttt{ask} 方法的实现。
+
+\begin{gocode}[title={代码清单 5.9 \texttt{game.go}：使用读取器的 \texttt{ask} 方法}]
+const solutionLength = 5
+
+// ask 会读取输入，直到得到（并返回）一个有效的猜测。
+func (g *Game) ask() []rune {
+    fmt.Printf("Enter a %d-character guess:\n", solutionLength)
+
+    for {
+        playerInput, _, err := g.reader.ReadLine() // 1
+        if err != nil {
+            _, _ = fmt.Fprintf(os.Stderr,
+                "Gordle failed to read your guess: %s\n", err.Error())
+            continue // 2
+        }
+
+        guess := []rune(string(playerInput))
+
+        // TODO 验证猜测的长度有效。
+    }
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 从玩家处读取尝试。
+  \item 这一行读取失败了，但也许下一行会更好。给它一次机会。
+\end{codeannotations}
+
+\texttt{ReadLine} 方法会把用户输入作为字节切片交给我们。接下来需要把这个字节切片转换成 rune 切片。如果直接把每个字节转换成表示该字节的 rune，将会犯下严重错误，因为所有非 ASCII 内容都会失效。要把一个已知表示字符串的字节切片正确转换成 rune 切片，需要先把字节切片转换成字符串，再转换成 rune 切片。
+
+内置方法 \texttt{len()} 返回切片（或数组）的长度。我们可以用它将克劳迪奥单词的长度与 \texttt{solutionLength} 常量比较。检查失败时，应该礼貌地输出一条消息。不过，为了表明输出的并不是“正常路径”信息，我们会使用 \texttt{os.Stderr} 提供的标准错误输出。
+
+% SOURCE_PDF_PAGE: 097
+\begin{gocode}[title={代码清单 5.10 \texttt{game.go}：使用读取器的 \texttt{ask} 方法}]
+guess := []rune(string(playerInput)) // 1
+
+if len(guess) != solutionLength { // 2
+    _, _ = fmt.Fprintf(os.Stderr, "Your attempt is invalid with Gordle's solution! Expected %d characters, got %d.\n", solutionLength, len(guess))
+} else {
+    return guess
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 把字节数组转换成 rune 数组。
+  \item 验证猜测的长度有效；这里仍然假定每个字符都是一个 Unicode 码点。
+\end{codeannotations}
+
+\subsubsection*{测试 \texttt{ask} 方法}
+
+\texttt{ask} 方法使用其接收者的读取器，并返回一个 rune 切片。如代码清单 5.11 所示，我们先在测试用例定义中声明它们。
+
+由于使用的是标准库的 \texttt{bufio.Reader}，我们可以给任何模拟玩家输入的存根创建读取器。存根是实现第三方依赖（在这里就是克劳迪奥）的一种非常简单的方式。请想出几个有创意的测试用例，使用你最喜欢的字母系统：例如字母表（如英语使用的拉丁字母，每个字母表示一个辅音或元音）、辅音音素文字（如阿拉伯语或希伯来语使用的文字，只书写辅音，元音可省略或单独书写）、元音附标文字（如天城文，辅音独立书写，元音修饰辅音）、音节文字（如平假名或切罗基文字，每个字符表示一个音节），甚至可以使用 Unicode 支持字符列表中的 emoji。
+
+% SOURCE_PDF_PAGE: 098
+\begin{gocode}[title={代码清单 5.11 \texttt{game\_internal\_test.go}}]
+package gordle
+
+import (
+    "errors"
+    "slices"
+    "strings"
+    "testing""
+)
+
+func TestGameAsk(t *testing.T) {
+    tt := map[string]struct {
+        input string
+        want []rune
+    }{
+        "5 characters in english": {
+            input: "HELLO",
+            want: []rune("HELLO"),
+        },
+        "5 characters in arabic": {
+            input: "مرحبا",
+            want: []rune("مرحبا"),
+        },
+        "5 characters in japanese": {
+            input: "こんにちは",
+            want: []rune("こんにちは"),
+        },
+        "3 characters in japanese": {
+            input: "こんに\nこんにちは",
+            want: []rune("こんにちは"),
+        },
+    }
+
+    for name, tc := range tt {
+        t.Run(name, func(t *testing.T) {
+            g := New(strings.NewReader(tc.input))
+
+            got := g.ask()
+            if !slices.Equal(got, tc.want) {
+                t.Errorf("got = %v, want %v", string(got), string(tc.want))
+            }
+        })
+    }
+}
+\end{gocode}
+
+你可能已经注意到，测试函数的第一行与前几章中的写法有些不同。确实，我们以前会声明一个 \texttt{testCase} 结构体，把所需的所有字段都封装起来——可现在它不见了！或者更准确地说，它被一个\emph{匿名结构体}取代了。这种实现方式在 Go 测试中非常常见，从现在起我们会一直使用它。不过，如果你更喜欢以前声明 \texttt{testCase} 结构体的方式，那也完全
+% SOURCE_PDF_PAGE: 099
+没问题。为了比较，两种写法都列在这里。显式结构体的实现如下：
+
+\begin{gocode}[]
+type testCase struct {
+    input string
+    want []rune
+}
+testCases := map[string]testCase
+\end{gocode}
+
+常见的匿名结构体实现如下：
+
+\begin{gocode}[]
+testCases := map[string]struct {
+    input string
+    want []rune
+}
+\end{gocode}
+
+请注意，按当前的 \texttt{ask} 实现，如果输入只有三个 rune，\texttt{ReadLine} 方法会永远等待：它忽略这行长度无效的三个字符，然后继续等待更多内容。这里发生的事情是，当 \texttt{ReadLine} 到达输入末尾时，它会返回一个特定错误，告诉调用者已经没有可读内容了。
+
+为什么不使用 \texttt{==} 来比较切片？毕竟数组可以这样比较！请记住，切片持有一个指向其底层数组的指针。如果数组元素类型的值可比较，数组值就可比较。两个数组值对应位置的元素都相等时，它们相等。但对于切片、结构体和映射，\texttt{==} 根本行不通。并不是使用 \texttt{==} 会产生随机结果，而是 Go 根本不允许比较两个切片——甚至不允许把一个切片与自身比较。唯一能与切片比较的是关键字 \texttt{nil}。
+
+这听起来或许有点苛刻，但它其实更像一种保护措施，而不是限制。在测试中可以使用方法 \texttt{reflect.DeepEqual}，但它并不是为性能而设计的，所以应该避免在生产代码中使用。请改为编写那个简单的循环。
+
+% SOURCE_PDF_PAGE: 100
+现在你的代码能编译、测试也能通过了吗？我们可以继续了。
+
+\subsubsection*{\texttt{Play}}
+
+现在我们已经能够读取克劳迪奥的猜测。让我们充分利用这项能力，把它接入 \texttt{Play()} 方法；该方法如下列代码清单所示。
+
+\begin{gocode}[title={代码清单 5.12 \texttt{game.go}：\texttt{Play} 方法}]
+// Play 运行游戏。
+func (g *Game) Play() {
+    fmt.Println("Welcome to Gordle!")
+
+    // 请求一个有效单词
+    guess := g.ask()
+
+    fmt.Printf("Your guess is: %s\n", string(guess))
+}
+\end{gocode}
+
+\texttt{main} 函数还少了一处更新，你能发现吗？因为 \texttt{New()} 方法以读取器作为参数，所以需要传入 \texttt{os.Stdin}，等待玩家输入。
+
+\begin{gocode}[title={代码清单 5.13 \texttt{main.go}：用 \texttt{os.Stdin} 更新后的 \texttt{main} 函数}]
+package main
+
+import (
+    "os"
+
+    "learngo-pockets/gordle/gordle"
+)
+
+func main() {
+    g := gordle.New(os.Stdin)
+    g.Play()
+}
+\end{gocode}
+
+你可以在控制台中手动测试。下面是一局游戏的示例：
+
+% SOURCE_PDF_PAGE: 101
+\begin{shellcode}[]
+> go run main.go
+Welcome to Gordle!
+Enter a 5-character guess:
+four
+Your attempt is invalid with Gordle's solution!
+Expected 5 characters, got 4.
+apple
+Your guess: apple
+\end{shellcode}
+
+\begin{codeannotations}
+  \item 第一次输入了一个四字符单词。
+  \item 字符数检查失败。
+  \item 第二次尝试输入了一个五字符单词。
+  \item 检查通过！
+\end{codeannotations}
+
+你可能已经注意到，\texttt{ask()} 方法现在既负责读取输入，也负责将其标准化并验证猜测。最好把这些关注点分开，所以来重构吧！
+
+\subsection{分离校验逻辑}
+
+对于一个方法应该承担哪些职责，并没有具体规则；但当你开始执行多个性质不同的操作时，最好让一个函数只负责一项动作。小函数也更容易测试和维护，同时有助于确保代码健壮。
+
+让我们把单词长度验证移到另一个方法中，恰当地命名为 \texttt{validateGuess}。注意，我们说的是\emph{方法}，而不是函数。这个 \texttt{validateGuess} 方法会有一个 \texttt{Game} 类型的接收者。这里还看不出原因，但在接下来的几页中，我们会想去掉 \texttt{solutionLength} 常量，改为针对真正秘密单词的长度进行测试，而这个单词将成为 \texttt{Game} 结构体的一部分。\texttt{validateGuess} 方法负责验证：它以猜测作为参数，并返回该单词是否有效。
+
+表示检查成功常见有两种方式：要么返回布尔值，要么返回错误；错误在 Go 中是一个值，表示我们发现的问题（如果一切正常则为 \texttt{nil}）。返回布尔值很简单，但
+% SOURCE_PDF_PAGE: 102
+无法实现细粒度行为。如果需要说明遇到了一个无法恢复的错误（至少就 \texttt{validateGuess} 所关心的范围而言），该怎么办？布尔值没有粒度，而错误却可以有更多变化，使调用者——这里就是 \texttt{ask} 方法——能够在出现错误时决定相应行为。我们还会看到，它怎样让代码更易于测试。
+
+\subsubsection*{错误传播}
+
+遗憾的是，大多数程序都会遇到错误。文件可能缺失，连接可能关闭，某个值可能意外为零，等等。Go 处理错误的方式，是使用返回一个或多个值的函数，最后一个值（如果有）是错误。调用这类函数后的第一行，是任何 Go 源代码中最常见的一行：\texttt{if err != nil \{}。它如此常见，以至于我们的 IDE 里都有一个宏，可以直接把它粘贴出来。
+
+取得错误后，最好的做法是尽可能处理它。然后，如果当前这一层对此无能为力，就把错误妥善包装后传播到上一层。包装错误会为最终能够决定如何处理错误的那一层提供上下文。包装错误最简单的方法是调用 \texttt{fmt.Errorf("... \%w ...", ..., err, ...)}，其中 \texttt{\%w} 表示“包装错误”。例如：
+
+\begin{gocode}[]
+err := myFunction()
+if err != nil {
+    return fmt.Errorf("an error occurred in myFunction: %w", err)
+}
+\end{gocode}
+
+在这段代码中，\texttt{fmt.Errorf} 返回包装后的错误。代码清单 5.14 包含这个新方法及其附带的错误。这个错误变量在 \texttt{validateGuess} 方法之外声明，以便
+% SOURCE_PDF_PAGE: 103
+扩大其作用域，稍后在单元测试中使用，从而验证我们取得了正确的错误。
+
+\begin{gocode}[title={代码清单 5.14 \texttt{game.go}：\texttt{validateGuess} 方法}]
+// 当猜测中的字符数不正确时，返回 errInvalidWordLength。
+var errInvalidWordLength = fmt.Errorf("invalid guess, word doesn't have the same number of characters as the solution") // 1
+
+// validateGuess 确保猜测足够有效。
+func (g *Game) validateGuess(guess []rune) error {
+    if len(guess) != solutionLength {
+        return fmt.Errorf("expected %d, got %d, %w",
+            solutionLength, len(guess), errInvalidWordLength)
+    }
+
+    return nil
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 错误消息的专用变量。
+\end{codeannotations}
+
+我们决定让验证函数保持简单。原版 Wordle 的每一种实现都会有自己的验证器——有些会确保尝试的长度正确，另一些会确保尝试是字典中存在的单词，或是开发者提供的列表中的单词。你能想到多少种，就会有多少种实现。务必在 \texttt{ask} 方法中用对 \texttt{validateGuess} 的调用替换原来的验证，如下面的代码清单所示。
+
+\begin{gocode}[title={代码清单 5.15 \texttt{game.go}：在 \texttt{ask} 方法中调用 \texttt{validateGuess}}]
+err = g.validateGuess(guess)
+if err != nil {
+    _, _ = fmt.Fprintf(os.Stderr,
+        "Your attempt is invalid with Gordle's solution: %s.\n",
+        err.Error()) // 1
+} else {
+    return guess
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 向克劳迪奥打印一条消息。
+\end{codeannotations}
+
+% SOURCE_PDF_PAGE: 104
+\subsubsection*{测试 \texttt{validateGuess()}}
+
+把验证提取成一个专用方法，是测试单一行为的一种方式。像之前一样，我们会使用表驱动测试，在不过多重复代码的情况下覆盖多个用例。现在来测试这个新函数。
+
+首先，测试中需要一个新的 \texttt{Game} 对象，才能调用 \texttt{validateGuess} 方法。然后，我们构建一个结构体，保存执行阶段和验证阶段所需的全部参数——这里就是尝试的单词和预期错误。接着，把测试场景加入表中。最后，在执行阶段，用测试用例中的单词调用 \texttt{validateGuess}，并验证错误是否符合预期。
+
+\texttt{errors} 包提供了一个重要函数：\texttt{errors.Is(err, target error) bool}。它会报告 \texttt{err} 的错误链中是否有任何错误与目标错误匹配。处理包装错误时，\texttt{errors.Is} 非常方便，因为它会解开所有错误及其链条，以验证某个特定错误是否存在。包装错误就像俄罗斯套娃，而 \texttt{errors.Is} 就像是在告诉你：层层套叠的娃娃中，是否有任何一个属于这种或那种类型。
+
+现在你已经熟悉表驱动测试，应该无需查看答案也能写出第一个测试场景；不过我们还是在下面的代码清单中给出了答案。
+
+% SOURCE_PDF_PAGE: 105
+\begin{gocode}[title={代码清单 5.16 \texttt{game\_internal\_test.go}：测试 \texttt{validateGuess} 方法}]
+package gordle
+
+import (
+    "errors"
+    "testing"
+)
+
+func TestGameValidateGuess(t *testing.T) {
+    tt := map[string]struct { // 1
+        word     []rune
+        expected error
+    }{
+        "nominal": { // 2
+            word:     []rune("GUESS"),
+            expected: nil,
+        },
+        "too long": {
+            word:     []rune("POCKET"),
+            expected: errInvalidWordLength,
+        }
+    }
+
+    for name, tc := range tt {
+        t.Run(name, func(t *testing.T) {
+            g := New(nil) // 3
+
+            err := g.validateGuess(tc.word) // 4
+            if !errors.Is(err, tc.expected) { // 5
+                t.Errorf("%c, expected %q, got %q",
+                    tc.word, tc.expected, err) // 6
+            }
+        })
+    }
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 定义必需的输入和预期输出。
+  \item 编写场景，包括正常路径和异常路径。
+  \item 这里只调用一个方法，而它不需要读取器。我们可以传入 \texttt{nil}。
+  \item 使用 \texttt{g} 这个 \texttt{Game} 对象调用该方法。
+  \item 使用 \texttt{errors} 包验证错误是否符合预期。
+  \item 可以用 \texttt{\%c} 打印切片的内容。
+\end{codeannotations}
+
+% SOURCE_PDF_PAGE: 106
+\begin{infobox}{支线任务 5.1}
+这里覆盖了一个五字符单词的正常路径用例，以及单词过长时的一个异常路径用例。添加新的测试用例，覆盖更多无效路径。如果尝试的字符更少、为空或为 \texttt{nil}，会发生什么？
+\end{infobox}
+
+\subsubsection*{输入标准化}
+
+本节的目标，是通过把输入转换成大写字符来统一其处理方式。这样，程序就能一致地处理任意大小写混合输入。此外，把这段逻辑封装在函数中，也会让将来扩展对其他书写系统的支持变得更容易。
+
+例如，我们不直接处理 \texttt{"Go"} 或 \texttt{"go"} 这样的字符串，而是用 \texttt{splitToUppercase\allowbreak Characters} 函数把它标准化成一致的格式，例如 \texttt{"GO"}。让我们重构下面这一行：
+
+\begin{gocode}[]
+guess := []rune(string(suggestion))
+\end{gocode}
+
+我们接受各种大写和小写混合形式。把这段逻辑放进一个名为 \texttt{splitToUppercase\allowbreak Characters} 的小函数后，将来就可以很容易地处理目前尚不支持的书写系统。
+
+\begin{gocode}[title={代码清单 5.17 \texttt{game.go}：拆分字符}]
+// splitToUppercaseCharacters 是一种朴素实现，用于把字符串转换成字符列表。
+func splitToUppercaseCharacters(input string) []rune {
+    return []rune(strings.ToUpper(input))
+}
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 107
+剩下要做的，只是用对新 \texttt{splitToUppercaseCharacters} 函数的调用，替换 \texttt{guess := []rune(string(suggestion))} 这一行。你还可以为该函数编写测试，检查输入是否被正确标准化。
+
+\subsection{判定胜利}
+
+我们已经打好了游戏的基础。下一步是验证克劳迪奥的尝试是否就是答案。如果不是，他可以再次尝试。我们还会限制尝试次数，让游戏更具挑战性。一局 Gordle 会在找到单词或达到最大尝试次数时结束。
+
+为了让克劳迪奥有更多机会找出答案，我们需要丰富 \texttt{Game} 结构体，因为它保存着玩一局游戏所需的全部信息。我们让答案与尝试保持相同类型，即 rune 切片，以便比较和操作。可以让 \texttt{gordle} 包选择答案，也可以暂时把它作为 \texttt{New} 函数的参数。为了保证玩家还能尝试新的单词，需要把最大尝试次数保存在某个变量中。我们可以把它设为包常量，但把变量嵌入 \texttt{Game} 结构体更好：这样可避免创建不必要的常量，也为以后允许更多次尝试留出空间。
+
+\begin{gocode}[title={代码清单 5.18 \texttt{game.go}：添加答案和最大尝试次数}]
+// Game 保存玩一局 Gordle 所需的全部信息。
+type Game struct {
+    reader      *bufio.Reader
+    solution    []rune // 1
+    maxAttempts int    // 2
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 以 rune 切片的形式添加答案。
+  \item 添加落败前允许的最大尝试次数。
+\end{codeannotations}
+
+% SOURCE_PDF_PAGE: 108
+目前，先更新 \texttt{New} 函数，把答案和最大尝试次数都作为参数传入：
+
+\begin{gocode}[]
+// New 返回一个可用于 Play 的 Game 变量！
+func New(playerInput io.Reader, solution string, maxAttempts int) *Game {
+    g := &Game{
+        reader:      bufio.NewReader(playerInput),
+        solution:    splitToUppercaseCharacters(solution),
+        maxAttempts: maxAttempts,
+    }
+
+    return g
+}
+\end{gocode}
+
+我们把答案作为字符串接收，因为这样更容易使用，然后复用刚刚编写的函数。我们也把传给包的答案全部设为大写，对它进行标准化；同样，这种做法只对有限的几种字母系统有意义。
+
+在 \texttt{Play} 方法中，可以添加一个循环，让克劳迪奥提出第二个、第三个乃至更多单词。循环的结束条件，是 Gordle 已收到的尝试次数等于允许的最大值。循环先询问一个单词，确保它有效，然后检查尝试是否等于答案。下面的代码清单展示了新版 \texttt{Play()} 方法。
+
+% SOURCE_PDF_PAGE: 109
+\begin{gocode}[title={代码清单 5.19 \texttt{game.go}：添加胜利检查}]
+// Play 运行游戏。
+func (g *Game) Play() {
+    fmt.Println("Welcome to Gordle!")
+
+    for currentAttempt := 1; currentAttempt <= g.maxAttempts; currentAttempt++ { // 1
+        guess := g.ask() // 2
+
+        if slices.Equal(guess, g.solution) {
+            fmt.Printf("(*@\PocketParty@*) You won! You found it in %d guess(es)! The word was: %s.\n", currentAttempt, string(g.solution))
+            return
+        }
+    }
+
+    fmt.Printf("(*@\PocketSad@*) You've lost! The solution was: %s. \n",
+        string(g.solution)) // 3
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 中断条件：已经达到最大尝试次数。
+  \item 请求一个有效单词。
+  \item 已经用尽允许的尝试次数。
+\end{codeannotations}
+
+\begin{infobox}{使用 emoji}
+要插入 emoji，在 Mac 上按 Ctrl-Cmd-Space，在 Windows 上按 Win + 句点键。在 Linux 上按 Ctrl-Shift-U 会进入 Unicode 输入模式；输入十六进制码值，再按 Enter 就能看到字符出现。\texttt{1F984} 是独角兽的编码。所有可用编码的列表见：\url{https://mng.bz/XxBG}。
+\end{infobox}
+
+现在答案已经嵌入 \texttt{Game} 对象，我们可以删掉各处的常量 \texttt{solutionLength}，并用答案的长度 \texttt{len(g.solution)} 代替。
+
+\begin{gocode}[title={代码清单 5.20 \texttt{game.go}：替换示例}]
+// 替换之前
+fmt.Printf("Enter a %d-character guess:\n", solutionLength)
+// 替换之后
+fmt.Printf("Enter a %d-character guess:\n", len(g.solution))
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 110
+\subsubsection*{测试仍然能通过吗？}
+
+已经过去很久了……测试仍然能通过吗？嗯，目前它们甚至无法编译，因为我们修改了 \texttt{New} 的签名。正如你所见，这会迫使用户提供必填字段：
+
+\begin{gocode}[]
+g := New(strings.NewReader(tc.input), string(tc.want), 0)
+\end{gocode}
+
+\texttt{ask} 方法不使用最大尝试次数，所以我们可以把零值作为参数传入，并告诉下一位维护者，这个值在当前上下文中没有用。
+
+这样应该就行了！我们可以继续更新其余代码，先从 \texttt{main.go} 文件开始。如前所述，游戏需要一个答案单词。目前先在 \texttt{main.go} 中将它硬编码，如下面的代码片段所示，同时还会写入默认的最大尝试次数。
+
+\begin{gocode}[title={代码清单 5.21 \texttt{main.go}：在 \texttt{main} 中硬编码答案，并更新 \texttt{New()}}]
+package main
+
+import (
+    "os"
+
+    "learngo-pockets/gordle/gordle"
+)
+
+const maxAttempts = 6
+
+func main() {
+    solution := "hello"
+
+    g := gordle.New(os.Stdin, solution, maxAttempts)
+
+    g.Play()
+}
+\end{gocode}
+
+\subsubsection*{来玩一局 Gordle！}
+
+下面是在玩家找到答案时的一局游戏示例。它展示了卢西奥玩自己的游戏，并在第一次尝试中轻松获胜的情形！
+
+% SOURCE_PDF_PAGE: 111
+记住自己几分钟前在 \texttt{main} 中写下并硬编码的内容，在这里确实帮上了忙：
+
+\begin{shellcode}[]
+> go run main.go
+Welcome to Gordle!
+Enter a 5-character guess:
+hello
+(*@\PocketParty@*) You won! You found it in 1 attempt(s)! The word was: HELLO.
+\end{shellcode}
+
+然而，如果卢西奥让朋友来玩，获胜就难多了！没有提示引导克劳迪奥接近答案，这个游戏几乎不可能赢（除非玩上两遍；不过让每一局都更换答案，是以后要做的工作）：
+
+\begin{shellcode}[]
+> go run main.go
+Welcome to Gordle!
+Enter a 5-character guess:
+sauna
+Enter a 5-character guess:
+pocket
+Your attempt is invalid with Gordle's solution: expected 5, got 6, invalid
+guess, word doesn't have the same number of characters as the solution.
+[...]
+Enter a 5-character guess:
+phone
+(*@\PocketSad@*) You've lost! The solution was: HELLO.
+\end{shellcode}
+
+如果游戏不告诉玩家离答案还有多近，不提示哪些字符位置正确、哪些字符位置不对，那么它会相当无聊。是时候给克劳迪奥一些反馈了。
+
+\section{提供反馈}
+
+克劳迪奥刚刚提交了一个单词。现在，我们的任务是告诉他：这个单词中哪些字符处在正确位置，哪些字符位置不对，哪些根本没有出现在答案中。这会帮助他找到 Gordle 最初选择的秘密单词。
+
+% SOURCE_PDF_PAGE: 112
+良好的反馈应该针对输入单词的每个字符返回一条明确提示，清楚地告诉玩家，该字符在这个或那个位置上是否正确。最初的 Wordle 游戏使用背景色来标示玩家输入的每个字符。虽然这对我们大多数人都很有效，但向用户提供反馈的应用应当考虑无障碍性。一种常见障碍是色觉缺陷；对有这种障碍的人来说，区分绿色和橙色并不像看起来那样显而易见。Wordle 后来添加了一个选项，让玩家可以使用高对比度颜色代替默认颜色。让我们看看这里能做些什么。
+
+\subsection{定义字符状态}
+
+我们已经确定，反馈会是一组提示，每条提示有三种取值：正确、位置错误和不存在。为了方便操作针对单个字符的反馈，我们创建 \texttt{hint} 类型来表示这些提示，并让它以 \texttt{byte} 为底层类型——按内存占用而言，这是 Go 提供的最小类型。\texttt{iota} 关键字让我们可以自动把它们从 0 编号到 2。使用底层数字，会让之后寻找能够提供给玩家的最佳提示时更容易。在 \texttt{gordle} 包中新建文件 \texttt{hint.go}，并在其中定义这个 \texttt{hint} 类型。
+
+\begin{gocode}[title={代码清单 5.22 \texttt{hint.go}：提示字符类型和枚举}]
+// hint 描述单词中一个字符的有效性。
+type hint byte
+
+const (
+    absentCharacter hint = iota // 1
+    wrongPosition               // 2
+    correctPosition             // 3
+)
+\end{gocode}
+
+\begin{codeannotations}
+  \item \texttt{absentCharacter = 0}
+  \item \texttt{wrongPosition = 1}
+  \item \texttt{correctPosition = 2}
+\end{codeannotations}
+
+% SOURCE_PDF_PAGE: 113
+\begin{infobox}{枚举中的值如何排序}
+在这个例子中，我们想把一些值列入枚举。三个元素总共有 $3!$（“3 的阶乘”，等于 $3 \times 2 \times 1$）种可能的排列，也就是六种排序方式。
+
+在 Go 中，最佳实践总是充分利用零值，并以一种合乎逻辑的方式排列枚举元素——在这里就是从最差到最好。也可以把 \texttt{unknownStatus} 设为枚举的零值，但稍后会看到，把 \texttt{absentCharacter} 用作零值将非常方便。
+\end{infobox}
+
+这些提示会打印到屏幕上，帮助克劳迪奥在下一次尝试中尽可能作出最佳猜测。我们需要为这些提示找到一种既简单又明确的表示方式。既然已经是 21 世纪，还有什么比 emoji 更适合传达一种大家都能理解并认同的消息呢？我们想给每种提示关联一个 emoji，而 Go 的实现方式是使用 \texttt{switch} 语句。
+
+现在来思考一下：怎样称呼那个从字面和实际意义上表示提示字符串形式的方法？我们想给它取什么名字，又想怎样调用它？
+
+% SOURCE_PDF_PAGE: 114
+\begin{infobox}{\texttt{Stringer} 接口}
+编写 Go 代码时，应该牢记的重要接口之一，是 \texttt{fmt} 包中定义的 \texttt{Stringer} 接口。它的定义很简单：\texttt{String() string}。这意味着，任何类型只要导出一个名为 \texttt{String}、不带参数且返回字符串的方法，就实现了这个接口。
+
+到目前为止一切顺利——但这里还有一个关键方面必须说明。查看 \texttt{fmt.Printf} 函数时，可以读到：“实现了 \texttt{Stringer} 的类型会像字符串一样打印。”也就是说，要打印一个实现了 \texttt{Stringer} 的类型的变量，只需在 \texttt{Printf} 调用中使用 \texttt{\%s}、\texttt{\%q} 或 \texttt{\%v}；它会自行调用 \texttt{String()} 方法。
+\end{infobox}
+
+如代码清单 5.23 所示，实现 \texttt{Stringer} 接口可以节省大量时间——复用一个广为人知的惯例，比试图耍聪明更好。此外，将来参与这段代码工作的开发者，也不需要为此增加一层额外知识。
+
+\begin{gocode}[title={代码清单 5.23 \texttt{hint.go}：\texttt{String()} 方法}]
+// String 实现 Stringer 接口。
+func (h hint) String() string {
+    switch h {
+    case absentCharacter:
+        return "(*@\PocketGraySquare@*)" // 灰色方块
+    case wrongPosition:
+        return "(*@\PocketYellowCircle@*)" // 黄色圆形
+    case correctPosition:
+        return "(*@\PocketGreenHeart@*)" // 绿色爱心
+    default:
+        // 这种情况绝不应该发生。
+        return "(*@\PocketBrokenHeart@*)" // 红色破碎爱心
+    }
+}
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 115
+请注意，如果你的终端无法正确显示 emoji，可以用数字或普通字符代替，例如用 \texttt{"."} 表示不存在，用 \texttt{"x"} 表示位置错误，用 \texttt{"O"} 表示位置正确。这个版本虽然没那么有趣，但至少比方块更容易阅读。
+
+为单个字符提供提示很好，但我们需要为单词中的每个字符都这样做。我们会用一个结构体表示一个单词的反馈。对于尝试中的每个字符，它都会保存一条提示，与该字符在答案中的位置相比较。我们把这个新类型命名为 \texttt{feedback}。可以把 \texttt{feedback} 的定义放在 \texttt{feedback.go} 文件中，但由于它与 \texttt{hint} 联系非常紧密，而且这两个类型上的方法都不会超过一个，所以可以把它们放在同一个文件里。
+
+\begin{gocode}[title={代码清单 5.24 \texttt{hint.go}：\texttt{feedback} 类型}]
+// feedback 是提示列表，单词中的每个字符对应一条提示。
+type feedback []hint
+\end{gocode}
+
+你可能会想：为状态切片定义一个别名，究竟有什么好处？这是个有趣的问题，答案很简单：我们可以在这个别名上定义方法。具体到这里，我们想打印反馈，让克劳迪奥下一次能够有根据地猜测。正如前几行所见，要为一种类型提供合适的字符串表示，最佳方式就是让它实现 \texttt{Stringer} 接口。我们只需编写一个小函数，打印每个字符的反馈。
+
+\subsubsection*{字符串构建器的好处}
+
+我们在 \texttt{feedback} 类型上第一次、也是朴素地实现 \texttt{String} 方法时，会先创建一个字符串，然后在遍历反馈状态的过程中逐个追加状态的表示。
+
+% SOURCE_PDF_PAGE: 116
+\begin{gocode}[title={代码清单 5.25 构建字符串的朴素实现}]
+// StringConcat 是把 feedback 构建成字符串的一种朴素实现。
+// 它只用于与 strings.Builder 版本进行基准比较。
+func (fb feedback) StringConcat() string {
+    var output string
+    for _, h := range fb {
+        output += h.String()
+    }
+    return output
+}
+\end{gocode}
+
+不过，这里有一条重要经验：绝不要在循环中拼接 Go 字符串。我们写出这个函数，只是为了教学。
+
+在 Go 中，字符串是不可变值，我们不能就地修改它们。甚至连替换字符串中的一个字符都做不到，除非先把字符串转换成某种切片，再转换回字符串。这让字符串操作相当痛苦，尤其是看似最简单的任务——把两个字符串拼接起来。对两个字符串使用 \texttt{+} 运算符时，Go 会为一个大小恰好的新字符串分配内存，并把两个操作数的字节复制到这个新字符串中。
+
+拼接两个字符串时，这种做法既简单又清晰；但只要有多个字符串要合并，它就会变慢。请记住，当要连接的字符串超过两个时，有两种很常见的替代方案值得考虑：
+
+\begin{itemize}
+  \item \texttt{strings.Join(elems []string, sep string) string}——它返回一个字符串，其中各元素之间由分隔符（通常是空格或逗号）隔开。只有在已经拥有字符串切片时才能使用它，而这里并非如此。
+% SOURCE_PDF_PAGE: 117
+  \item \path{strings.Builder}——虽然稍微复杂一些，但这个替代方案通用得多。在底层，\path{strings.Builder} 把字符存储在 rune 切片中；与坚如磐石的字符串相比，rune 切片更容易增长。我们的示例选择了这个方案。
+\end{itemize}
+
+\texttt{strings} 包提供 \texttt{Builder} 类型，让你可以通过追加最终字符串的各个片段来构建字符串，同时尽量减少每次添加字符时的内存分配与重新分配次数。
+
+要使用 \texttt{Builder}，先声明一个新变量，再逐步填充字符串，如代码清单 5.26 所示。它提供了多种追加内容的方法，包括 \texttt{WriteString}、\texttt{WriteRune} 和 \texttt{WriteByte}；基础方法 \texttt{Write} 则接收字节切片。这里最适合使用 \texttt{WriteString}，因为我们已经知道怎样把提示转换成字符串。数据全部写入构建器后，调用 \texttt{String()} 即可得到最终结果。
+
+\begin{gocode}[title={代码清单 5.26 \texttt{hint.go}：\texttt{feedback} 类型上的 \texttt{String()}}]
+// String 为提示切片实现 Stringer 接口。
+func (fb feedback) String() string {
+    sb := strings.Builder{}
+    for _, h := range fb {
+        sb.WriteString(h.String())
+    }
+    return sb.String()
+}
+\end{gocode}
+
+想看看差别吗？如何对代码进行基准测试，请参阅附录 D。
+
+选定更愿意使用的实现后，别忘了测试这个方法。测试 \texttt{feedback.String()} 会覆盖 \texttt{hint.String()}，这已经足够，因此不必再单独测试 \texttt{hint.String()} 方法。
+
+现在已经可以向克劳迪奥发送反馈了，但这里还缺少一小块信息。我们还不知道
+% SOURCE_PDF_PAGE: 118
+哪些字符处在正确位置——或者错误位置！在真正享受游戏之前，这将是我们的下一项任务。
+
+\subsection{对照答案检查猜测}
+
+本节讨论如何着手解决一个新问题。无论使用什么语言，有时都需要暂时离开屏幕，拿出纸笔，思考解决问题的最佳方法。在我们的情形中，要确保给出的提示准确无误。处在正确位置的字母，应当始终标为位置正确。处在错误位置的字母，只有当它在单词中别处出现且尚未匹配时，才应该如此标记。我们需要确保能正确处理重复字母；例如，如果答案是“HELLO”，那么单词“SMALL”应该得到什么反馈？
+
+由于本书不是算法教材，我们将从检查函数的伪代码开始，它实现了我们的解决方案。在直接跳到我们的答案之前，请随意先自行思考。
+
+伪代码是代码逻辑的一种中间表示，它使用句子和单词，而不是指令。伪代码没有官方语法——有时循环以 \texttt{END FOR} 结束，有时则以右花括号结束。你可以自行决定怎样书写。阅读自己的伪代码，至少应当像阅读代码一样清晰，而且还能使用某种编程语言中可能并不存在的运算符。伪代码会像魔法一样提供你能梦想到的任何函数（不过以后也许仍需要亲自实现它们）。在代码清单 5.27 中，我们突出展示了 \texttt{mark} 这样的“虚构”运算符。

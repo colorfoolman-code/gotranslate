@@ -1,0 +1,1140 @@
+% SOURCE_PDF_PAGE: 001
+\chapter{书虫文摘：玩转循环与映射}
+
+\begin{infobox}{本章内容}
+\begin{itemize}
+  \item 遍历切片（slice）和映射（map）
+  \item 使用映射存储唯一值
+  \item 学习如何打开和读取文件
+  \item 解码 JSON 文件
+  \item 使用自定义比较器对切片排序
+\end{itemize}
+\end{infobox}
+
+自文字发明以来，人们一直借助这种工具，让自己的思想穿越岁月留存下来。书籍曾经是知识的载体，后来也成了一种爱好。数百年来，我们不断阅读书籍，并把它们收藏在书架上。如今有了技术，我们比以往更能广泛分享信息，也能对包括书籍在内的一切发表看法。本章中，我们将加入一群一直忠实阅读的书虫。Fadi 和 Peggy 已经开始登记自己书架上收藏的书，他们想知道，我们能否帮忙找出两人都读过的书，或许还能推荐他们今后要读的书。
+
+本章将通过根据书虫们的藏书创建一份书籍文摘，巩固我们在第 2 章学到的命令行界面（CLI）知识。我们会逐步使用每位读者的书目，构建一个程序：找出并打印位于不止一个书架上的书。作为加餐，我们还会练习使用映射和切片；它们是 Go 中与
+% SOURCE_PDF_PAGE: 002
+数组相似、动态而灵活的数据结构，并用它们创建一个为书虫推荐新读物的工具。可执行程序的输入是一个 JSON 文件，我们将学习如何用 Go 读取文件，以及如何使用 Go 标准库解析 JSON 文件。为简单起见，我们假定每本书只有一位作者（考虑到你此刻正在读的这本书，这一点颇有些讽刺）。这个项目要求如下：
+
+\begin{itemize}
+  \item 编写一个 CLI 工具，以 JSON 文件形式接收书虫列表及其藏书。
+  \item 找出书虫们书架上共同拥有的书。
+  \item 把他们共有的书打印到标准输出。
+  \item 作为加餐，根据每位书虫与其他书虫相同的藏书，为其推荐书籍。
+\end{itemize}
+
+这个项目有以下限制：
+
+\begin{itemize}
+  \item 我们假定每本书只有一位作者。
+  \item 输入的 JSON 文件不会超过 1 MB。
+\end{itemize}
+
+\section{加载 JSON 数据}
+
+我们进入了新的一章，也就意味着要建立一个新项目和一个新文件夹。让我们运行初始化模块的命令，并把将要使用的模块命名为 \texttt{bookworms}：
+
+\begin{shellcode}[]
+> go mod init learngo-pockets/bookworms
+\end{shellcode}
+
+作为良好实践和标准的第一步，我们建议新建一个 \texttt{main.go} 文件，其中放入一个简单的空 \texttt{main} 函数：
+
+% SOURCE_PDF_PAGE: 003
+\begin{gocode}[]
+package main
+
+func main() {
+    // 将在后续逐步完成
+}
+\end{gocode}
+
+本章接下来的内容会逐步补全 \texttt{main.go} 文件。本节中，我们将创建输入 JSON 文件，并加载其中的数据。
+
+\subsection{定义一个 JSON 示例}
+
+先来看一些输入数据示例。这里有一个人员列表，包含每个人的姓名和书籍。每本书都有一位作者和一个书名。
+
+\begin{infobox}{关于 JSON 格式的几句话}
+JavaScript 对象表示法（JavaScript Object Notation，JSON）是一种用“键—值”对存储数据的文件格式，例如 \texttt{"key": value}。JSON 的键始终是用直双引号括起来的字符串；值则可以是下列任意一种：
+
+\begin{itemize}
+  \item 十进制数（没有包围字符）：\texttt{4}、\texttt{3.1415}、\texttt{1e12}
+  \item 字符串（用双引号括起）：\texttt{"Hello"}、\texttt{"1789"}
+  \item 数组（用方括号括起）：\texttt{[1,2.5,-10]}
+  \item 布尔值（没有包围字符）：\texttt{true}、\texttt{false}
+  \item 对象（用花括号括起）：\texttt{\{"name":"Nergüi"\}}
+\end{itemize}
+
+JSON 对象的字段并没有特定顺序；在代码清单 3.1 中，\texttt{author} 可以出现在 \texttt{title} 之前或之后，得到的载荷都相同。另一方面，数组是有顺序的；交换第一个与第二个元素会改变载荷。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 004
+现在可以编写一个书虫示例文件。下面的代码清单给出了该文件的代码。
+
+\begin{gocode}[title={代码清单 3.1 \texttt{testdata/bookworms.json}：输入文件示例}]
+[
+    {
+         "name": "Fadi",
+         "books": [
+           {
+             "author": "Margaret Atwood",
+             "title": "The Handmaid's Tale"
+           },
+           {
+             "author": "Sylvia Plath",
+             "title": "The Bell Jar"
+           }
+         ]
+    },
+    {
+         "name": "Peggy",
+         "books": [
+           {
+             "author": "Margaret Atwood",
+             "title": "Oryx and Crake"
+           },
+           {
+             "author": "Margaret Atwood",
+             "title": "The Handmaid's Tale"
+           },
+           {
+             "author": "Charlotte Brontë",
+             "title": "Jane Eyre"
+           }
+         ]
+    }
+]
+\end{gocode}
+
+目前这已经足够简单。Go 中有一项约定：任何名为 \texttt{testdata} 的文件夹都应当包含（你猜对了）测试用数据。引用 \texttt{go} 工具文档的话说：“\texttt{go} 工具会忽略名为 \texttt{testdata} 的目录，因此可以用它保存测试所需的辅助数据。”代码检查器和其他静态代码分析工具也应忽略这个目录。
+
+请在 \texttt{testdata} 文件夹中新建一个名为 \texttt{bookworms.json} 的文件，填入与我们类似的数据，并选择你最喜欢的书。你也可以前往我们的代码仓库，复制我们的版本。
+
+% SOURCE_PDF_PAGE: 005
+读取这些数据的第一步是打开文件，并把其内容作为文件加载；第二步是解析 JSON。
+
+\subsection{打开文件}
+
+我们不喜欢在过长的文件中迷路，因此选择把项目逻辑拆成两个文件：其一，\texttt{main.go} 知道程序运行在终端里，并能显示文本；其二，\texttt{bookworm.go} 包含业务逻辑，可以复制到不同环境中复用。现在还不必想得太复杂。此时，你的文件树应如下所示：
+
+\begin{treebox}
+\PocketTreeLine{\textgreater{} tree}
+\PocketTreeLine{.}
+\PocketTreeLine{├── bookworm.go}
+\PocketTreeLine{├── go.mod}
+\PocketTreeLine{├── main.go}
+\PocketTreeLine{└── testdata}
+\PocketTreeLine{\hspace*{4em}└── bookworms.json}
+\end{treebox}
+
+加载数据将由一个新函数负责，我们称它为 \texttt{loadBookworms}。它接收文件路径参数 \texttt{filePath}，并返回 JSON 文档所表示的 \texttt{Bookworm} 切片，如代码清单 3.2 所示。如果出现问题（文件不存在、JSON 无效等），它也可以返回错误。别忘了为它写文档字符串，也就是说明函数用途的注释。
+
+\begin{gocode}[title={代码清单 3.2 \texttt{bookworm.go}：\texttt{loadBookworms} 的签名}]
+package main
+
+// loadBookworms 读取文件，并返回其中找到的书虫及其爱书列表。
+func loadBookworms(filePath string) ([]Bookworm, error) {
+    return nil, nil // (1)
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 暂时返回空值。
+\end{codeannotations}
+
+我们先前在第 2 章第 2.3.1 节讨论过零值，具体信息也可参阅附录 C。在这里，书虫切片的零值是
+% SOURCE_PDF_PAGE: 006
+\texttt{nil}，错误接口的零值也是 \texttt{nil}。因此，\texttt{loadBookworms} 暂时返回 \texttt{nil} 和 \texttt{nil}。
+
+Go 提供了与平台无关的 \texttt{os} 包，用于操作系统功能。根据文档所述：“它的设计类似 Unix，不过错误处理方式遵循 Go 风格；失败的调用返回 \texttt{error} 类型的值，而不是错误编号。”
+
+\texttt{os} 包中有一个 \texttt{os.File} 类型，它提供了打开文件进行读写、更改文件权限、创建新文件，以及许多其他针对文件的系统操作。可以用 \texttt{go doc os.File} 获取完整列表。打开文件最简单的函数是 \texttt{os.Open}。我们把文件路径以 \texttt{filePath} 参数传给 \texttt{os.Open}；它会返回一个指向 \texttt{File} 的指针（即文件描述符），或者返回一个错误。文档还贴心地告诉我们，这个描述符处于只读模式，返回的错误属于 \texttt{*PathError} 类型。
+
+% SOURCE_PDF_PAGE: 007
+\begin{infobox}{\texttt{os.Create}、\texttt{os.Open} 与 \texttt{os.OpenFile} 的区别}
+从 \texttt{os} 包的文档可以看到，有好几个函数都会返回文件描述符，而且各有最适合的用途。下面看看什么时候应使用 \texttt{os.OpenFile}，而不是 \texttt{os.Create} 或 \texttt{os.Open} 来打开文件：
+
+\begin{itemize}
+  \item \texttt{Create} 创建一个文件，为所有用户赋予读写（但不包括执行）权限（\texttt{0666}）。如果文件已经存在，\texttt{Create} 会将其截断，让原有内容消失得无影无踪。\texttt{Create} 成功后，可使用返回的文件描述符向文件写入数据。
+  \item \texttt{Open} 以只读方式打开指定文件。
+  \item \texttt{OpenFile} 是一种更通用的方法，用户可以自行决定打开文件是为了写入还是读取。大多数时候你不需要它，调用 \texttt{Open} 或 \texttt{Create} 就够了。不过，它在两个非常具体的场景中很有用。第一个场景是：你想在不丢弃原有内容的情况下向文件追加数据。此时使用 \texttt{Open} 行不通（\texttt{*File} 会是只读的），使用 \texttt{Create} 也不行（文件内容会被擦除）。\texttt{OpenFile} 函数的第二个参数是一个标志，用来控制打开文件的方式。可以用 \texttt{go doc os.O\_APPEND} 查看完整列表。这些标志都是常量，应按需要组合。创建文件或追加内容时，请使用 \texttt{os.O\_APPEND|os.O\_CREATE|os.O\_WRONLY}。
+
+  第二个场景是：我们想创建一个文件，但不希望采用 \texttt{Create} 的默认权限。只有 \texttt{OpenFile} 能通过最后一个参数为文件设置特定访问权限。
+\end{itemize}
+
+这三种方法中任何一种出错，错误都会属于 \texttt{*os.PathError} 类型。大多数时候，我们会使用 \texttt{Open} 和
+% SOURCE_PDF_PAGE: 008
+\texttt{Create}。
+\end{infobox}
+
+\texttt{os} 包中的常量采用全大写形式，因为它们属于操作系统标准。除此之外，Go 和对待其他名称一样，更倾向于用 PascalCase 定义常量。
+
+\begin{infobox}{\texttt{defer}}
+对 \texttt{*File} 完成 I/O 操作后，必须在代码中使用 \texttt{Close()} 方法将其关闭。这样可以释放文件占用的系统资源，避免程序产生泄漏。如果不关闭描述符，系统上所有可用的文件句柄都可能被耗尽；而且锁定文件在 Windows 上还会产生一些复杂的副作用，你最终可能把自己阻挡在对已打开文件的写入或删除操作之外。理论上，Go 的垃圾回收器应当会在某个时刻关闭文件（不会晚于程序退出时），但明确知道文件描述符何时以及如何关闭，总是更好。换句话说，要有礼貌，明确地收拾好自己留下的东西。
+
+我们怎么知道操作何时完成呢？通常，到函数末尾时操作就结束了，我们会在那里调用 \texttt{Close()}。但设想这样一种情况：你必须重构函数，并删除大量代码。如果不小心把 \texttt{Close()} 调用删掉，或者在调用它之前就返回了呢？防止 \texttt{Close()} 调用淹没在函数其余部分中的最好办法，是让它紧挨着 \texttt{Open} 或 \texttt{Create}。
+
+在 Go 中，\texttt{defer} 关键字会把一条语句的执行推迟到函数即将结束时，即使 \texttt{defer} 出现在函数开头也是如此。关键在于，无论函数以哪种方式返回，执行路径经过的每一条 \texttt{defer} 都会
+% SOURCE_PDF_PAGE: 009
+得到执行。函数返回时，延迟调用按后进先出的顺序执行。表 3.1 展示了几个简单示例。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 010
+\textbf{表 3.1 程序使用和不使用 \texttt{defer} 时的执行情况}
+
+\begin{longtable}{p{0.17\textwidth}p{0.52\textwidth}p{0.18\textwidth}}
+\hline
+\textbf{示例} & \textbf{代码} & \textbf{控制台输出} \\
+\hline
+\endfirsthead
+\multicolumn{3}{l}{\small\itshape 表 3.1（续）} \\
+\hline
+\textbf{示例} & \textbf{代码} & \textbf{控制台输出} \\
+\hline
+\endhead
+不使用 \texttt{defer} &
+\begin{minipage}[t]{\linewidth}\ttfamily\small
+package main\par
+\strut\par
+import "fmt"\par
+\strut\par
+func main() \{\par
+\quad fmt.Println("a bookworm")\par
+\quad fmt.Println("you are")\par
+\}
+\end{minipage}
+&
+\begin{minipage}[t]{\linewidth}\ttfamily\small
+a bookworm\par
+you are
+\end{minipage} \\
+\hline
+使用 \texttt{defer} &
+\begin{minipage}[t]{\linewidth}\ttfamily\small
+package main\par
+\strut\par
+import "fmt"\par
+\strut\par
+func main() \{\par
+\quad defer fmt.Println("a bookworm")\par
+\quad fmt.Println("you are")\par
+\}
+\end{minipage}
+&
+\begin{minipage}[t]{\linewidth}\ttfamily\small
+you are\par
+a bookworm
+\end{minipage} \\
+\hline
+使用两条 \texttt{defer} &
+\begin{minipage}[t]{\linewidth}\ttfamily\small
+package main\par
+\strut\par
+import "fmt"\par
+\strut\par
+func main() \{\par
+\quad defer fmt.Println("or not?")\par
+\quad defer fmt.Println("a bookworm")\par
+\quad fmt.Println("you are")\par
+\}
+\end{minipage}
+&
+\begin{minipage}[t]{\linewidth}\ttfamily\small
+you are\par
+a bookworm\par
+or not?
+\end{minipage} \\
+\hline
+\end{longtable}
+
+% SOURCE_PDF_PAGE: 011
+对于 \texttt{os} 操作，\texttt{defer} 语句应放在检查 \texttt{Open} 返回错误的代码之后。如果在代码中看到一次 \texttt{Open} 调用，那么在同一个代码块里也必须看到 \texttt{Close}；这两行只有成对出现才有意义。
+
+\texttt{defer} 关键字大多用于关闭文件、数据库连接、缓冲读取器等。Go 的一个 Kafka 事件管理器库会使用 \texttt{Close()}，因为服务器需要平稳断开连接，才能停止继续尝试向已连接的客户端发送消息。有时，你还会发现 \texttt{defer} 很适合用来计算函数内部耗费的时间。
+
+回到我们的代码。我们要打开一个文件进行读取。它可能返回一个必须处理的错误；在这里，我们只需把错误返回给调用者。完成这一步后，我们就知道自己得到了一个有效的文件描述符，因此需要关闭文件。让我们用下面的代码更新 \texttt{loadBookworms} 函数。
+
+\begin{gocode}[title={代码清单 3.3 \texttt{bookworm.go}：打开文件}]
+f, err := os.Open(filePath) // (1)
+if err != nil {            // (2)
+    return nil, err
+}
+defer f.Close()             // (3)
+\end{gocode}
+
+\begin{codeannotations}
+  \item 打开指定文件。
+  \item 处理错误。
+  \item 延迟释放资源。
+\end{codeannotations}
+
+\texttt{io.Reader} 和 \texttt{io.Closer} 是 Go 包中常用的接口，\texttt{os.File} 同时实现了二者。\texttt{io.Reader} 可以把数据流读入字节切片。
+
+\subsection{解析 JSON}
+
+为了解析 JSON 数据，我们将使用 Go 的 \texttt{encoding/json} 包。Go 标准库的各个包支持一份相当丰富的编码格式列表，其中包括
+% SOURCE_PDF_PAGE: 012
+XML、CSV 和 Base64。到第 6 章开始解码 HTTP 调用的响应时，我们会更详细地讨论解析。
+
+Go 标准库的包结构表示的并不是一棵依赖关系树，而是不同领域。凡是与网络有关的内容，都在 \texttt{net} 包或嵌套在 \texttt{net} 中的包里。\texttt{encoding} 包极其轻量，只定义了四个接口；要使用 \texttt{encoding/json} 包中的内容，并不需要引入 \texttt{encoding} 包。
+
+\begin{infobox}{定义与 JSON 文件对应的结构体}
+总体思路是：用于解码的 Go 结构体必须与 JSON 结构匹配。在我们的场景中，有一个人员列表，我们称其中的人为 \texttt{Bookworm}；每个人都有姓名和一个 \texttt{Book} 列表。为了告诉 Go，JSON 中的哪个字段对应 Go 结构体中的哪个字段，我们会使用反引号括起来的标签（tag）。标签中包含标准名称，随后是该标准里的字段名称。
+
+这里的书籍列表类型称为切片，我们很快就会讨论它。目前先把注意力放在 JSON 上，如下面的代码清单所示。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 013
+\begin{gocode}[title={代码清单 3.4 \texttt{bookworm.go}：\texttt{Bookworm} 和 \texttt{Book} 结构体}]
+// Bookworm 包含一个书虫书架上的书籍列表。
+type Bookworm struct {
+    Name  string `json:"name"`  // (1)
+    Books []Book `json:"books"` // (2)
+}
+
+// Book 描述书虫书架上的一本书。
+type Book struct {
+    Author string `json:"author"`
+    Title  string `json:"title"`
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 人名。
+  \item 书籍列表，其定义见后文。
+\end{codeannotations}
+
+请看这些 \texttt{json} 标签。每个 Go 字段都用相应 JSON 字段的名称作标签。注意，字段名不必与标签名相同；保持相同只是一项让代码更易读的约定。还有一项 Go 约定：切片字段应使用复数单词命名。
+
+最后，使用标签时最重要的实践之一是导出字段：我们将要编写的解码器需要向结构体的字段写入数据。为此，它必须能“看到”这些字段，也就是说，这些字段必须被导出。许多人都曾花费数小时调试，只为了弄明白为什么某个字段始终为空。
+
+\begin{infobox}{把 JSON 文件解码到结构体中}
+文件打开并完全加载后，就可以定义一个保存这些信息的变量，如代码清单 3.5 所示。这个变量必须是 \texttt{Bookworm} 的切片，因为这正是 \texttt{encoding/json} 包要交给我们的类型。随后，我们把该变量的指针传给解码器，让解码器填充它。
+
+请记住，不传指针的另一种做法是传入副本。那样一来，解码器会填满副本，再把它扔给垃圾回收器，而我们最终仍然两手空空。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 014
+\begin{gocode}[title={代码清单 3.5 \texttt{bookworm.go}：在 \texttt{loadBookworms()} 中解码 JSON}]
+var bookworms []Bookworm // (1)
+
+// 解码文件，并把内容存入 bookworms 值。
+err = json.NewDecoder(f). // (2)
+    Decode(&bookworms)    // (3)
+if err != nil {           // (4)
+    return nil, err
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 定义书虫切片。
+  \item 围绕数据源创建一个 JSON 解码器。
+  \item 解码到切片中。
+  \item 如果出现错误，直接返回该错误。
+\end{codeannotations}
+
+注意，我们在同一条语句中既创建了解码器，也使用了解码器。这得益于 \texttt{NewDecoder} 只返回一个 \texttt{Decoder}（不返回错误）。因为我们不会在其他地方使用 \texttt{NewDecoder} 返回的解码器，所以通常无需为它声明变量，除非有其他因素要求这样做（例如行长或含义）。相反，我们只是调用 \texttt{Decode}，直接使用 \texttt{NewDecoder} 的结果。
+
+还有一些更精细的方法可以解码大型 JSON 输入或文件（例如显式采用流式机制，避免加载文件的全部内容）。如果你好奇，可以查看第 3.4.3 节；不过在本项目中，我们相信你的测试文件不会超过几 MB。
+
+之后，只需返回解码得到的书虫。最终函数应与下面的代码清单大致相同。
+
+% SOURCE_PDF_PAGE: 015
+\begin{gocode}[title={代码清单 3.6 \texttt{bookworm.go}：\texttt{loadBookworms()} 解析 JSON 文件}]
+// loadBookworms 读取文件，并返回其中找到的书虫及其爱书列表。
+func loadBookworms(filePath string) ([]Bookworm, error) {
+    f, err := os.Open(filePath) // (1)
+    if err != nil {
+        return nil, err
+    }
+    defer f.Close() // (2)
+
+    // 初始化文件将被解码到的类型。
+    var bookworms []Bookworm
+
+    // 解码文件，并把内容存入 bookworms 变量。
+    err = json.NewDecoder(f).Decode(&bookworms) // (3)
+    if err != nil {
+        return nil, err
+    }
+
+    return bookworms, nil
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 打开文件进行读取。
+  \item 确保关闭文件。
+  \item 解码到书虫数组中。
+\end{codeannotations}
+
+为了让整个文件通过编译，需要导入 \texttt{os} 和 \texttt{encoding/json} 包。如果你使用的编辑器足够聪明，它可能已经替你做了这件事。
+
+在编写测试之前，我们可以先给自己一个小奖励，用一次简单的打印手动检查示例。如下面的代码清单所示，在 \texttt{main} 函数中调用 \texttt{loadBookworms} 函数，把 JSON 文件路径作为参数传入，然后打印结果。
+
+% SOURCE_PDF_PAGE: 016
+\begin{gocode}[title={代码清单 3.7 \texttt{main.go}：在 \texttt{main()} 中调用 \texttt{loadBookworms()}}]
+package main
+
+import (
+    "fmt"
+    "os"
+)
+
+func main() {
+    bookworms, err := loadBookworms(
+        "testdata/bookworms.json") // (1)
+    if err != nil {
+        _, _ = fmt.Fprintf(os.Stderr,
+            "failed to load bookworms: %s\n", err) // (2)
+        os.Exit(1) // (3)
+    }
+
+    fmt.Println(bookworms) // (4)
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 传入 JSON 文件的路径。
+  \item 打印错误。
+  \item 以错误代码退出。
+  \item 打印输出。
+\end{codeannotations}
+
+要运行它，已经不能再使用 \texttt{go run main.go} 了。当然，你可以试试，但会看到 Go 因为你调用未知函数而发火。这是因为 \texttt{main} 函数调用了 \texttt{loadBookworms}，而该函数既没有在 \texttt{main.go} 文件中声明，也不在 \texttt{main.go} 导入的任何包中。的确，\texttt{go run} 不会查看 \texttt{main.go} 没有导入的文件（它为什么要看呢？）。因此，Go 程序的 \texttt{main} 包通常只有一个文件：\texttt{main.go}。另一种做法是让 \texttt{go run} 运行一个包或目录，而不是单个文件。这样，该目录或包中的所有文件都会参与执行；在我们的例子中，Go 就不会再生气了：
+
+\begin{shellcode}[]
+> go run .
+\end{shellcode}
+
+输出看起来像一团乱码，但你仍能辨认出书虫切片的结构：
+
+\begin{shellcode}[]
+[{Fadi [{Margaret Atwood The Handmaid's Tale} {Sylvia Plath The Bell Jar}]}
+{Peggy [{Margaret Atwood Oryx and Crake} {Margaret Atwood The
+Handmaid's Tale} {Charlotte Brontë Jane Eyre}]}]
+\end{shellcode}
+
+% SOURCE_PDF_PAGE: 017
+这不是最好的用户界面，但用于调试已经足够。
+
+\subsection{测试}
+
+怎样才能确保它在未来改动之后仍能工作？有一点可以确定：每次都执行命令，再检查结果中的花括号位置是否正确，这种做法无法长期维持。
+
+不妨为这个函数编写测试。\texttt{testdata} 文件夹非常适合存放对应不同测试用例的各种 JSON 文件。我们要测试的是 \texttt{bookworm.go} 文件中的一个内部函数，因此把测试文件命名为 \texttt{bookworms\_internal\_test.go}，并为 \texttt{loadBookworms} 编写一个名为 \texttt{TestLoadBookworms} 的测试。
+
+第一步是定义函数所需的参数和返回值。我们需要 \texttt{testdata} 中某个文件的路径，还需要预期结果，即一个 \texttt{Bookworm} 切片。因为也要测试失败路径，所以还要增加一个值，表示是否预期出现错误。在本章中，我们不会验证错误的确切类型，只用一个布尔值检查错误是否存在。
+
+每个测试用例都可以各用一个函数，但这种策略很少具有扩展性。我们改用映射：键是供人阅读的测试名称，用来说明想测试什么；值是一个结构，其中包含该测试用例特有的全部值。测试之后，我们会进一步讨论映射：
+
+\begin{gocode}[]
+type testCase struct {
+    bookwormsFile string
+    want          []Bookworm
+    wantErr       bool
+}
+tests := map[string]testCase{}
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 018
+为了尽量少写测试用例中的 \texttt{[]Bookworm}，可以把书定义成全局变量，在不同测试中复用。全局变量在代码中通常不是个好主意，但在测试中，我们想要的是顺手的解决方案；尤其是名称为 \texttt{*\_test.go} 的文件无法从包外访问，即使你不小心用大写字母命名了变量也一样：
+
+\begin{gocode}[]
+var (
+    handmaidsTale = Book {
+        Author: "Margaret Atwood", Title: "The Handmaid's Tale",
+    }
+    oryxAndCrake = Book {
+        Author: "Margaret Atwood", Title: "Oryx and Crake",
+    }
+)
+\end{gocode}
+
+现在来编写成功用例的测试。我们需要一个新的 JSON 文件，也可以复用现有文件，随你喜欢。或者，你可以从我们的代码仓库“拿”走那些文件。我们不会投诉。
+
+我们用 \texttt{Bookworm} 列表填充预期结果，其中包括每位书虫的姓名和书籍列表。下面是一个示例：
+
+\begin{gocode}[]
+"file exists": {
+    bookwormsFile: "testdata/bookworms.json",
+    want: []Bookworm{
+        {Name: "Fadi", Books: []Book{handmaidsTale, theBellJar}},
+        {Name: "Peggy", Books: []Book{oryxAndCrake, handmaidsTale,
+            janeEyre}},
+    },
+    wantErr: false,
+}
+\end{gocode}
+
+我们至少可以找出两个错误用例：（1）指定文件不存在；（2）文件格式无效。让我们虚构一条不存在的文件路径。你大概能补出 \texttt{loadBookworms} 的行为：
+
+% SOURCE_PDF_PAGE: 019
+\begin{gocode}[]
+"file doesn't exist": {
+    bookwormsFile: "testdata/no_file_here.json",
+    want:          nil,
+    wantErr:       true,
+}
+\end{gocode}
+
+如你所见，预期结果是 \texttt{nil}：由于打开文件会在流程早期失败，我们预期出现错误，而且确实希望得到错误。
+
+可能遇到的第二条失败路径是文件无效，也就是其格式不遵守 JSON 语法规则（例如缺少括号或逗号）。在我们的测试用例中，文件被截断了，因此缺少右括号（\texttt{\}}）。同样，我们要验证返回的错误存在。请在 \texttt{testdata} 文件夹中创建一个格式无效的文件，并编写相应的测试用例：
+
+\begin{gocode}[]
+"invalid JSON": {
+    bookwormsFile: "testdata/invalid.json",
+    want:          nil,
+    wantErr:       true,
+}
+\end{gocode}
+
+很简单，不是吗？上一章编写表驱动测试时，我们轻描淡写地略过了这一点；不过要正确遍历映射，你还需要进一步了解循环。
+
+\begin{infobox}{在 Go 中使用循环}
+Go 中的所有循环语法都使用关键字 \texttt{for}。没错，真的是全部。其他语言可能会使用 \texttt{while}、\texttt{foreach}、\texttt{for} 等关键字。下面看几个例子。
+
+首先看看经典的 \texttt{for}。这里没有什么不同寻常之处。我们可以从一个数计数到另一个已知的数：
+
+\begin{gocode}[]
+for i := 0; i < 5; i++ {
+for i := 0; i < arrayLength; i++ {
+for i := firstIndex; i < limit; i++ {
+\end{gocode}
+
+% SOURCE_PDF_PAGE: 020
+顺带一提，Go 对后缀运算符 \texttt{++} 和 \texttt{--} 的用法与一些语言不同。在多数语言中，\texttt{i++} 的意思是“把 \texttt{i} 加 1，再把结果存入 \texttt{i}”。与 C++ 或 Java 等其他语言相比，Go 的不同之处在于：\texttt{i++} 不是左值（l-value），不能拿来与任何值比较。Go 中不能写 \texttt{i++ < 5} 或 \texttt{fmt.Println(i++)}。这也意味着 Go 没有前缀运算符；我们不能用 \texttt{++i} 表示“增加 \texttt{i} 的值，并返回增加后的值”。
+
+再来看看其他语言中 \texttt{while \{Boolean\}} 语法在 Go 里的实现：
+
+\begin{gocode}[]
+for iterator.Next() {
+for line != lastLine {
+for !gotResponse || response.invalid() {
+\end{gocode}
+
+任何布尔表达式在这里都有效；只要确保自己不会陷入无限循环。反过来，如果确实需要无限循环，也有办法创建：
+
+\begin{gocode}[]
+for {
+\end{gocode}
+
+它会一直继续，永远不停。通常，这类循环中会包含 \texttt{return}、\texttt{break}，或某个能让整个程序退出的操作。
+
+最后，当我们需要遍历数组、切片、映射或通道中的元素时，可以把 \texttt{for} 与关键字 \texttt{range} 搭配使用。对于切片，例如我们希望从文件读取的 \texttt{Bookworm} 列表，\texttt{range} 会返回索引和该索引处值的一份副本：
+
+\begin{gocode}[]
+for i, bw := range bookworms {
+\end{gocode}
+
+这里每次迭代时，\texttt{i} 会从 0 开始不断增加，直至 \texttt{len(bookworms)-1}；\texttt{bw} 与 \texttt{bookworms[i]} 相同。主要区别在于，\texttt{bw} 是一份副本，所以如果你修改它，
+% SOURCE_PDF_PAGE: 021
+切片本身的内容不会发生变化。这可能是好事，也可能是坏事，取决于你的预期。对于映射，例如测试中的映射，\texttt{range} 只会返回键的一份副本和值的一份副本：
+
+\begin{gocode}[]
+for name, testCase := range tests {
+\end{gocode}
+
+在 Go 1.20 之前，这些副本会写入同一个变量，因此在循环内部以并发方式使用该变量时，可能产生一些意外。如果不需要两个参数中的某一个，可以用多种方式忽略它。下面几行全都有效；对机器而言，第二种与第三种写法没有区别：
+
+\begin{gocode}[]
+for _, bw := range bookworms
+for i, _ := range bookworms
+for i := range bookworms
+\end{gocode}
+
+请花些时间独立写出完整测试，然后把你的解法与下面的代码清单比较。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 022
+\begin{gocode}[title={代码清单 3.8 \texttt{bookworms\_internal\_test.go}：测试 \texttt{LoadBookworms()}}]
+package main
+
+import (
+    "reflect"
+    "testing"
+)
+
+var (
+    handmaidsTale = Book{
+        Author: "Margaret Atwood", Title: "The Handmaid's Tale",
+    }
+    oryxAndCrake = Book{Author: "Margaret Atwood", Title: "Oryx and Crake"}
+    theBellJar    = Book{Author: "Sylvia Plath", Title: "The Bell Jar"}
+    janeEyre      = Book{Author: "Charlotte Brontë", Title: "Jane Eyre"}
+)
+
+func TestLoadBookworms_Success(t *testing.T) {
+    tests := map[string]struct {
+        bookwormsFile string
+        want          []Bookworm
+        wantErr       bool
+    }{
+        "file exists": {
+             bookwormsFile: "testdata/bookworms.json",
+             want: []Bookworm{
+                 {Name: "Fadi", Books: []Book{handmaidsTale, theBellJar}},
+                 {Name: "Peggy", Books:
+                     []Book{oryxAndCrake, handmaidsTale, janeEyre},
+                 },
+             },
+             wantErr: false,
+        },
+        "file doesn't exist": {...},
+        "invalid JSON": {...},
+    }
+    for name, testCase := range tests {
+        t.Run(name, func(t *testing.T) {
+             got, err := loadBookworms(testCase.bookwormsFile)
+             if err != nil && !testCase.wantErr { // (1)
+                 t.Fatalf("expected an error %s, got none", err.Error())
+             }
+
+             if err == nil && testCase.wantErr { // (2)
+                 t.Fatalf("expected no error, got one %s", err.Error())
+             }
+
+             if !equalBookworms(got, testCase.want) { // (3)
+                 t.Fatalf("different result: got %v, expected %v",
+                     got, testCase.want)
+             }
+        })
+    }
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 验证失败用例中的非 \texttt{nil} 错误值。
+  \item 验证成功用例中的 \texttt{nil} 错误值。
+  \item 检查得到的结果是否与期望结果相符。
+\end{codeannotations}
+
+% SOURCE_PDF_PAGE: 023
+该用什么来比较预期的 \texttt{Bookworm} 与返回的 \texttt{Bookworm} 呢？最直接的答案是编写一个相等性函数，比较两个 \texttt{Bookworm} 列表的内容。我们将这个函数命名为 \texttt{equalBookworms}。下面详细看看它的样子。首先，它的签名应接收两个 \texttt{Bookworm} 列表；我们把要用作比较目标的那个命名为 \texttt{target}。因为这是一个工具函数，所以可以在辅助函数开头添加 \texttt{t.Helper()}，告诉编译器可以跳过它，不要打印行信息。要做到这一点，需要把 \texttt{*testing.T} 作为参数传给相等性函数，如代码清单 3.9 所示。本章中所有辅助函数都会采用同样的做法。
+
+函数内容是遍历书虫并逐一比较每个字段：先比较相对简单的姓名，再比较书籍。
+
+\begin{gocode}[title={代码清单 3.9 \texttt{bookworms\_internal\_test.go}：比较 \texttt{Bookworm}}]
+// equalBookworms 是测试两个 Bookworm 列表是否相等的辅助函数。
+func equalBookworms(t *testing.T, bookworms, target []Bookworm) bool {
+    t.Helper()
+
+    if len(bookworms) != len(target) {
+        return false // (1)
+    }
+
+    for i := range bookworms {
+        if bookworms[i].Name != target[i].Name { // (2)
+            return false
+        }
+
+        if !equalBooks(t,
+            bookworms[i].Books, target[i].Books) { // (3)
+            return false
+        }
+    }
+
+    return true // (4)
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 由于 \texttt{Bookworm} 数量不同，提前退出。
+  \item 验证 \texttt{Bookworm} 的姓名。
+  \item 验证每位 \texttt{Bookworm} 的 \texttt{Book} 藏书内容。
+  \item 一切都相等！
+\end{codeannotations}
+
+% SOURCE_PDF_PAGE: 024
+为了比较书籍，可以编写一个子函数 \texttt{equalBooks}，只封装书籍的比较，使代码易于阅读和复用（见代码清单 3.10）。就实现而言，别忘了可以先比较两个列表的长度来提前退出。随后遍历书籍，比较两个列表；若二者不同，就返回 \texttt{false}。
+
+\begin{gocode}[title={代码清单 3.10 \texttt{bookworms\_internal\_test.go}：比较 \texttt{Book} 的辅助函数}]
+// equalBooks 是测试两个 Book 列表是否相等的辅助函数。
+func equalBooks(t *testing.T, books, target []Book) bool {
+    t.Helper()
+
+    if len(books) != len(target) {
+        return false // (1)
+    }
+
+    for i := range books {
+        if books[i] != target[i] { // (2)
+            return false
+        }
+    }
+
+    return true // (3)
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 由于 \texttt{Book} 数量不同，提前退出。
+  \item 验证每位 \texttt{Bookworm} 的 \texttt{Book} 藏书内容。
+  \item 一切都相等！
+\end{codeannotations}
+
+另一种做法是使用标准包 \texttt{reflect}。它提供了一个简单但性能不佳的接口比较函数 \texttt{reflect.DeepEqual}，本书后面还会进一步探讨。因为它并非为性能而设计，所以不建议在生产代码中使用；但对我们的情况来说，它完全够用。少写一些代码总是好事：
+
+\begin{gocode}[]
+if !reflect.DeepEqual(got, testCase.want) {
+    t.Fatalf("different result: got %v, expected %v", got, testCase.want)
+}
+\end{gocode}
+
+至此，我们已经把一个 JSON 结构的输入文件解析成了 Go 结构。这样便可以实现第二项要求：找出出现在不止一份藏书中的书。
+
+% SOURCE_PDF_PAGE: 025
+\section{寻找书虫们的共同藏书}
+
+请记住，我们工具的全部目的，就是找出 Fadi 和 Peggy 或其他书虫都读过哪些书。本节中，我们会查看所有书虫的书架，登记在那里找到的书，然后筛选出现次数多于一次的书。
+
+我们会为这个任务编写一个名为 \texttt{findCommonBooks} 的函数。先写出它的签名。如下面的代码清单所示，它接收我们已有的数据，也就是书虫及其藏书的列表，并以 \texttt{Book} 切片的形式返回他们共有的书。
+
+\begin{gocode}[title={代码清单 3.11 \texttt{bookworm.go}：\texttt{findCommonBooks()} 的签名}]
+// findCommonBooks 返回出现在不止一位书虫书架上的书。
+func findCommonBooks(bookworms []Bookworm) []Book {
+    return nil
+}
+\end{gocode}
+
+怎样知道一本书在书架上出现了多次？我们需要统计每本书在所有书虫书架上的出现次数；发现某本书出现不止一次时，就知道它位于多个书架上。
+
+但这真的够吗？如果一个人的书架上同一本书有不止一本，该怎么办？我们几位作者为此进行了一场长谈：这种事真的会发生吗？谁会拥有同一本书的多份副本？事实证明，我们当中有一位用三种不同语言收藏了同一系列小说；另一位拥有同一本书的不同版本；第三位则大吃一惊。
+
+总之，我们该怎么办？目前先想当然地认为，每个人的列表中每本书都只列出一次，
+% SOURCE_PDF_PAGE: 026
+以便稍微简化算法。
+
+\subsection{统计书籍}
+
+怎样统计所有书？我们有一个 \texttt{Bookworm} 切片，所以就从这里开始：查看每位书虫的藏书，并“登记”在那里找到的每本书。眼下可以用一个计数器来登记一本书，它表示目前为止在书架上看到这本书的次数。
+
+\begin{infobox}{注意}
+Go 提供的内置类型数量有限：数组、切片、映射，以及在较小程度上使用的通道。这些类型是实现数据集合的核心基石。在 Go 中，映射是一种无序的关联数组，包含成对的键和值。每个键都与一个值相关联（但两个键可以拥有相同的值）。正如本章将看到的，映射是 Go 创建唯一键集合的惯用方式。映射的键可以是任何可比较的值。如果有疑问，就问自己：能否写出 \texttt{key1 == key2}？乍看之下，人们很容易以为 Go 中一切皆可比较，但残酷的事实是并非如此。切片、映射和函数类型不可比较，这意味着包含切片、映射或函数类型的任何结构体也不可比较。我们很快就会遇到这个问题。
+\end{infobox}
+
+\begin{infobox}{向映射写入}
+我们必须把数据存入映射。在 Go 中，可以用下面这行代码，把值 \texttt{v} 与映射中的键 \texttt{k} 关联起来：
+
+\begin{gocode}[]
+myMap[k] = v
+\end{gocode}
+
+就是这么简单。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 027
+\begin{infobox}{从映射读取}
+从切片中取出索引 3 处的元素要用方括号；同样，从映射中取出键 3 对应的元素，看起来完全一样：
+
+\begin{gocode}[]
+var mySlice []string
+...
+v := mySlice[3]
+
+mapped := map[int]string{}
+...
+v := mapped[3]
+\end{gocode}
+
+唯一的区别是，映射还会返回一个布尔值，告诉你是否找到了这个键。对于切片，只要其长度至少为 4（没错，我们仍从 0 开始计数），就知道索引 3 处有值；否则将遇到错误并导致 panic。对于映射，如果没有找到键，返回值只是其类型的零值；对 \texttt{map[int]string} 而言，就是空字符串 \texttt{""}，同时布尔值为 \texttt{false}：
+
+\begin{gocode}[]
+v, ok := mapped[3]
+if ok {...
+\end{gocode}
+
+也可以写成更简洁的版本，把变量 \texttt{v} 的作用域限制在 \texttt{if} 语句内：
+
+\begin{gocode}[]
+if v, ok := mapped[3]; ok {
+    // 用 v 做些事情
+}
+\end{gocode}
+
+现在我们已经知道怎样访问映射中的元素，接下来该统计书籍了。
+\end{infobox}
+
+\begin{infobox}{初始化计数器}
+计数器将保存在一个映射中，其中的键是书，值是 \texttt{uint}，即无符号整数。拥有同一本书的多份副本看起来或许有些奇怪（似乎确实如此），但拥有少于零份副本则完全不可能。
+
+% SOURCE_PDF_PAGE: 028
+内置的 \texttt{make} 函数会为映射（或切片、通道）分配内存，从而创建它。如果事先知道不同书籍的数量，例如 451 本，就可以明确指定所需映射的大小。这会略微优化执行：
+
+\begin{gocode}[]
+count := make(map[Book]uint, 451)
+\end{gocode}
+
+下面两行的行为完全相同，你可以选择写得明确些，也可以选择写得简洁些：
+
+\begin{gocode}[]
+count := make(map[Book]uint)
+count := make(map[Book]uint, 0)
+\end{gocode}
+
+现在来填充计数器。首先，需要遍历 \texttt{Bookworm}。我们会使用先前介绍的 \texttt{for} 关键字。在这里要使用迭代器的值，而不需要索引。不过，不妨给迭代器起一个比 \texttt{bw} 更具描述性的名字：
+
+\begin{gocode}[]
+for _, bookworm := range bookworms {
+}
+\end{gocode}
+
+在这个循环内部，可以用完全相同的语法遍历此人读过的书：
+
+\begin{gocode}[]
+for _, book := range bookworm.Books {
+}
+\end{gocode}
+
+映射的键是一个 \texttt{Book} 结构体。在 Go 中，某些结构体可以作为映射的键。这里重要的是，结构体必须可哈希。与 Java 不同，Go 编译器不需要一个 \texttt{Hash} 函数；它自己知道怎样对结构体进行哈希，使其成为有效的键。任何类型只要可哈希，就能作为映射键。不可
+% SOURCE_PDF_PAGE: 029
+比较的类型也不可哈希。例如，切片不可哈希，这意味着任何包含切片的结构体都不能成为映射的键。如果尝试用含有切片的结构体作为键，Go 会用下面这条编译消息告知你：\texttt{invalid map key type}。最后，我们可以递增这本书的计数器：
+
+\begin{gocode}[]
+count[book]++
+\end{gocode}
+
+但等一下，我们一开始从未把它设为 0。如果计数器不存在，是否应先设为 1，只有已经存在时才使用 \texttt{++}？不用，我们不必这样做。这正体现了 Go 中零值的妙处。
+
+你看，\texttt{count[book]} 会返回映射中以 \texttt{book} 为索引的值；如果它不存在，则返回值类型的零值。这里的值类型是 \texttt{uint}，所以零值就是 0。
+
+与多数类 C 语言一样，\texttt{a++} 只是 \texttt{a = a + 1} 的语法糖。如果把 \texttt{a} 换成 \texttt{count[book]}，我们会先从映射中取值；如果它不存在，就得到 0。然后加 1，再写回映射中的同一个位置。
+
+这段简短的计数逻辑足够独立，很适合放进自己的函数里。我们把它称为 \texttt{booksCount}，并在 \texttt{findCommonBooks()} 中调用。到这里，它应与下面代码清单中的代码相似。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 030
+\begin{gocode}[title={代码清单 3.12 \texttt{bookworm.go}：\texttt{booksCount()} 函数}]
+// booksCount 登记所有书虫书架上的全部书籍及其出现次数。
+func booksCount(bookworms []Bookworm) map[Book]uint {
+    count := make(map[Book]uint) // (1)
+
+    for _, bookworm := range bookworms { // (2)
+        for _, book := range bookworm.Books {
+            count[book]++ // (3)
+        }
+    }
+
+    return count
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 初始化映射计数器。
+  \item 遍历 \texttt{bookworms} 切片。
+  \item 为每本书递增计数器。
+\end{codeannotations}
+
+能测试它吗？应该相当直接。
+
+\begin{infobox}{测试}
+为这个小函数编写测试并没有多么棘手。首先，可以编写一个辅助函数来比较两个书籍映射是否相等：验证 \texttt{want} 映射中的键是否出现在我们得到的结果中。让我们遍历 \texttt{want}，并在 \texttt{got} 中用该键取值。
+
+% SOURCE_PDF_PAGE: 031
+\begin{gocode}[title={代码清单 3.13 \texttt{bookworms\_internal\_test.go}：比较书籍计数}]
+// equalBooksCount 是测试两个书籍计数映射是否相等的辅助函数。
+func equalBooksCount(t *testing.T, got, want map[Book]uint) bool {
+    t.Helper()
+
+    if len(got) != len(want) { // (1)
+        return false
+    }
+
+    for book, targetCount := range want { // (2)
+        count, ok := got[book]              // (3)
+        if !ok || targetCount != count {    // (4)
+            return false                    // (5)
+        }
+    }
+
+    return true // (6)
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 如果长度不同，两个映射就不同。
+  \item 遍历作为目标的书籍计数映射。
+  \item 取出计数值，以及证明键存在的布尔值。
+  \item 要么没有找到该 \texttt{Book}，要么计数值不同。
+  \item 提前退出比较。
+  \item 两个映射相等。
+\end{codeannotations}
+
+注意，在这个版本中，\texttt{nil} 映射与空映射被视为相等。辅助函数写好后，接下来进入最长的部分：想出所有测试用例。第一个测试用例是正常用例，第二个则是一个书虫也没有，如代码清单 3.14 所示。还有一种情况是某位书虫没有任何书（他大概不是真正的书虫，至少也是个非常不快乐的人）。再次请你独立编写测试，然后比较自己的解法。
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 032
+\begin{gocode}[title={代码清单 3.14 \texttt{bookworms\_internal\_test.go}：测试 \texttt{booksCount}}]
+func TestBooksCount(t *testing.T) {
+    tt := map[string]struct {
+        input []Bookworm
+        want  map[Book]uint
+    }{
+        "nominal use case": {
+            input: []Bookworm{
+                {Name: "Fadi", Books: []Book{
+                    handmaidsTale, theBellJar, // (1)
+                }},
+                {Name: "Peggy", Books:
+                    []Book{oryxAndCrake, handmaidsTale, janeEyre}},
+            },
+            want: map[Book]uint{
+                handmaidsTale: 2,
+                theBellJar: 1,
+                oryxAndCrake: 1,
+                janeEyre: 1},
+        },
+        "no bookworms": {
+            input: []Bookworm{},
+            want: map[Book]uint{}, // (2)
+        },
+        "bookworm without books": {...},
+        "bookworm with twice the same book": {...},
+    }
+
+    for name, tc := range tt {
+        t.Run(name, func(t *testing.T) {
+            got := booksCount(tc.input)
+            if !equalBooksCount(t, tc.want, got) { // (3)
+                t.Fatalf(
+                    "got a different list of books: %v, expected %v",
+                    got, tc.want)
+            }
+        })
+    }
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 复用先前定义为全局变量的 \texttt{Book}。
+  \item 空映射与初始化时的映射相同。
+  \item 调用辅助函数 \texttt{equalsBooksCount()}。
+\end{codeannotations}
+
+运行测试。一切都通过了吗？很好，这意味着我们可以使用 \texttt{booksCount} 函数。
+
+现在把调用加入一个名为 \texttt{findCommonBooks} 的新函数中。先从最基本的代码骨架开始。
+
+% SOURCE_PDF_PAGE: 033
+\begin{gocode}[title={代码清单 3.15 \texttt{bookworm.go}：调用 \texttt{booksCount()} 的 \texttt{findCommonBooks()}}]
+// findCommonBooks 返回出现在不止一位书虫书架上的书。
+func findCommonBooks(bookworms []Bookworm) []Book {
+    booksOnShelves := booksCount(bookworms) // (1)
+
+    return nil
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 调用计数函数。
+\end{codeannotations}
+
+注意，这段代码应该无法通过编译，因为目前还没有使用 \texttt{booksOnShelves} 变量。不过，现在正是使用它的时候！
+
+\subsection{保留出现多次的书}
+
+现在，我们已经统计出每本书在各个书架上的副本数量。下一步是遍历它们，保留副本数量多于一本的书。先声明一个切片，用来容纳在所有书虫藏书中多次出现的书：
+
+\begin{gocode}[]
+var commonBooks []Book
+
+return commonBooks
+\end{gocode}
+
+我们还可以再次使用内置的 \texttt{make} 函数。但要怎么用呢？
+
+\begin{infobox}{什么是切片，什么是数组？}
+我们一直用“切片”这个词来指代由同一类型的值组成的列表。许多语言会直接把它称为数组，那么这里到底有什么讲究？难道只是换了个花哨的新词？你已经知道怎样遍历切片，不过此刻还需要补充一点理论。
+
+类型 \texttt{[n]T} 是由 \texttt{n} 个 \texttt{T} 类型的值组成的数组。例如，\texttt{var a [5]string} 把变量 \texttt{a} 声明为包含五个字符串的数组。数组长度是其类型的一部分，因此数组
+% SOURCE_PDF_PAGE: 034
+无法调整大小，这一点限制很大。在实际工作中，我们几乎从不直接使用数组。
+
+按照 Go 官方网站的描述，切片是“对数组中元素的、大小可动态变化且灵活的视图”。类型 \texttt{[]T} 是一个基于数组构建、元素类型为 \texttt{T} 的切片。可以看到，我们没有指定它的大小。
+
+切片有三个每位开发者都需要了解的字段：以指针保存的底层数组、切片长度，以及切片容量。长度是切片中已有元素的数量，容量则是在必须重新分配之前能够存储的元素数量。可以通过内置函数 \texttt{len} 和 \texttt{cap} 获取它们，也可以在用 \texttt{make} 初始化切片时设置它们。注意，把长度作为字段保存，使访问这项信息成为一个 \(O(1)\) 操作。
+
+对切片还能进行的最后一项非常实用的操作，是使用内置 \texttt{append} 函数追加元素。来看几个例子：
+
+\begin{gocode}[]
+var books []Book
+books = append(books, Book{...})
+\end{gocode}
+
+起初，容量和长度都是 0，切片为 \texttt{nil}，底层数组尚未初始化。追加之后，切片中的元素数量变为 1，因此 \texttt{len(books)} 是 1。这很好理解；切片也不再是 \texttt{nil}。但比较微妙的是，此时我们指向的新数组容量为一个元素。
+
+请注意，\texttt{append} 返回一个切片。附录 E 会讲解内部发生了什么；目前需要记住的重要一点是：向切片追加元素时，用 \texttt{append} 的输出覆盖扩展后的切片始终是安全的。
+
+% SOURCE_PDF_PAGE: 035
+再来看另一个切片初始化示例。在这里，我们创建了一个长度为 5、容量为 5、底层数组包含 5 本零值书籍的切片：
+
+\begin{gocode}[]
+books := make([]Book, 5)
+books[1].Author = "bell hooks"
+\end{gocode}
+
+五本书都会被创建并清零，这意味着我们可以直接访问并写入它们。此外，如果向这个切片追加一个 \texttt{Book}，它会出现在第六个位置，也就是已有的五本零值书籍之后。最后，如果知道切片最终的大小，但又想使用 \texttt{append}，可以同时指定初始长度和所需容量：
+
+\begin{gocode}[]
+books := make([]Book, 0, 5)
+\end{gocode}
+
+既然已经知道怎样创建切片，再来看看目前写出的代码。在第 3.1.3 节中，我们把描述书架的 JSON 消息解码到了一个切片变量中，该变量使用刚刚介绍的 \texttt{var} 语法声明。我们没有调用 \texttt{make}，所以没有引起任何分配。诀窍在于，我们把切片的地址传给了 \texttt{Decode} 函数，后者于是可以用值填充它。附录 E 会探究按地址或按副本传递切片的奥秘。
+\end{infobox}
+
+\begin{infobox}{遍历映射}
+为了填充切片，需要遍历 \texttt{booksCount()} 返回的映射 \texttt{booksOnShelves}，并检查每本书的计数器值。计数器大于 1 的书至少被两位书虫读过；在我们的例子中，就是 Fadi 和 Peggy 两人都读过：
+
+% SOURCE_PDF_PAGE: 036
+\begin{gocode}[]
+for book, count := range booksOnShelves {
+    if count > 1 {
+        commonBooks = append(commonBooks, book)
+    }
+}
+\end{gocode}
+\end{infobox}
+
+下面的代码清单给出了 \texttt{findCommonBooks} 函数的完整代码。
+
+\begin{gocode}[title={代码清单 3.16 \texttt{bookworm.go}：实现 \texttt{findCommonBooks()}}]
+// findCommonBooks 返回出现在不止一位书虫书架上的书。
+func findCommonBooks(bookworms []Bookworm) []Book {
+    booksOnShelves := booksCount(bookworms) // (1)
+
+    var commonBooks []Book
+
+    for book, count := range booksOnShelves { // (2)
+        if count > 1 {                         // (3)
+            commonBooks = append(commonBooks, book)
+        }
+    }
+
+    return commonBooks
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 登记每本书的数量。
+  \item 遍历这些书。
+  \item 仅保留出现次数多于一次的书。
+\end{codeannotations}
+
+\begin{infobox}{测试}
+测试它应该很容易。输入将是书虫列表，输出应是书籍列表。有些测试用例足够简单，不需要我们帮忙就能写出：
+
+\begin{itemize}
+  \item 每个人都读过相同的书。
+  \item 人们的书单完全不同。
+  \item 两位以上的书虫拥有一本共同的书。
+  \item 一位书虫没有任何书（太悲伤了！）。
+  \item 谁都没有书（太痛苦了！）。
+\end{itemize}
+
+代码清单 3.17 展示了我们的测试版本。运行你的测试，然后再多运行几次。有没有发现什么奇怪的地方？
+\end{infobox}
+
+% SOURCE_PDF_PAGE: 037
+\begin{gocode}[title={代码清单 3.17 \texttt{bookworms\_internal\_test.go}：测试 \texttt{findCommonBooks()}}]
+func TestFindCommonBooks(t *testing.T) {
+    tt := map[string]struct {
+        input []Bookworm
+        want  []Book
+    }{
+        "no common book": {
+            input: []Bookworm{
+                {Name: "Fadi", Books: []Book{handmaidsTale, theBellJar}},
+                {Name: "Peggy", Books: []Book{oryxAndCrake, janeEyre}},
+            },
+            want: nil,
+        },
+        "one common book": {...},
+        "three bookworms have the same books on their shelves": {...},
+    }
+
+    for name, tc := range tt {
+        t.Run(name, func(t *testing.T) {
+            got := findCommonBooks(tc.input)
+            if !equalBooks(t, tc.want, got) { // (1)
+                t.Fatalf(
+                    "got a different list of books: %v, expected %v",
+                    got, tc.want)
+            }
+        })
+    }
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item 调用先前实现的 \texttt{equalBooks()}。
+\end{codeannotations}
+
+\subsection{确定性}
+
+如果把代码运行几次，就会看到输出顺序不断变化。输出不一定总与切片 \texttt{[]want} 中描述的预期顺序一致。
+
+遍历映射时，Go 不保证按特定顺序返回键和值。视情况而定，采用确定性行为、每次都以同一顺序返回同一结果可能更好。首先，这会简化测试。
+
+在这里，对书籍切片排序会让日子轻松一些。\texttt{sort} 包专门为这种情况提供了一个 \texttt{Slice} 函数：它接收一个切片和一个函数。该函数返回两个索引中，第一个索引处的元素是否必须出现在第二个索引处的元素之前。我们可以
+% SOURCE_PDF_PAGE: 038
+直接在这次调用中定义一个匿名函数，因为这样比在其他地方给它命名更便于日后修改。目前，我们会先按作者、再按书名对书籍排序。如果日后想改成先按书名、再按作者排序，就在这里修改。
+
+\begin{infobox}{定义}
+匿名函数没有名称，常被用作内联或临时代码。在 Go 中，当你需要把函数作为参数传递，或立即执行一小段代码而不单独声明它时，匿名函数尤其有用。例如，它们经常用于排序函数，或在闭包中定义简短且针对特定任务的逻辑。
+\end{infobox}
+
+因为排序逻辑不属于寻找共同藏书的算法，所以我们更愿意把它放进另一个函数。在下面的代码清单中，我们把它放入一个封装 \texttt{sort.Slice} 调用的函数。
+
+\begin{gocode}[title={代码清单 3.18 \texttt{bookworm.go}：对书籍排序}]
+// sortBooks 先按 Author、再按 Title 对书籍排序。
+func sortBooks(books []Book) []Book {
+    sort.Slice(books, func(i, j int) bool { // (1)
+        if books[i].Author != books[j].Author {
+            return books[i].Author < books[j].Author // (2)
+        }
+        return books[i].Title < books[j].Title // (2)
+    })
+
+    return books
+}
+\end{gocode}
+
+\begin{codeannotations}
+  \item \texttt{sort.Slice} 的第二个参数是一个函数。
+  \item 使用 \texttt{<} 比较字符串，遵循 UTF 顺序。
+\end{codeannotations}
+
+注意，原始切片会被修改，\texttt{sort.Slice} 函数不会创建数组的一份已排序副本。这可能是好事，也可能是坏事，取决于具体情况。这个函数的签名也可以是没有返回值的 \texttt{sortBooks([]Book)}。附录 E 会讲解其中细节。
+
+% SOURCE_PDF_PAGE: 039
+\begin{infobox}{注意}
+因为第 2 章提到过 rune（Unicode 码点），这里需要作一项说明：使用 \texttt{<} 比较字符串时，会查看书名的 UTF 编码。因此，例如希腊文书名始终会排在拉丁字符书名之后。
+\end{infobox}
+
+要使用排序函数，只需包装 \texttt{findCommonBooks} 的返回值：
+
+\begin{gocode}[]
+return sortBooks(commonBooks)
+\end{gocode}
+
+现在测试会容易得多。你可能需要修正预期结果的顺序，但现在可以把测试自动化，并信赖它的结果。代码现已通过测试，可以回到 \texttt{main.go} 打印结果。
+
+\section{打印}
+
+回到 \texttt{main} 函数，我们只加载了数据，没有做其他事情。调用 \texttt{findCommonBooks} 吧。现在得到了一个书籍切片，需要正确显示它。\texttt{fmt.Println} 很方便，但我们需要遍历书籍集合。
+
+来编写一个打印书籍列表的函数。你应该能用五行代码完成。
+
+\begin{gocode}[title={代码清单 3.19 \texttt{bookworms.go}：\texttt{displayBooks}}]
+// displayBooks 打印书籍列表中的书名和作者
+func displayBooks(books []Book) {
+    for _, book := range books {
+        fmt.Println("-", book.Title, "by", book.Author)
+    }
+}
+\end{gocode}
+
+如果想测试它，就必须编写一个 \texttt{Example}，或者提供一个 \texttt{io.Writer}。第 4 章会介绍怎样传入写入器。现在，我们可以在 \texttt{main} 函数中实现第三项功能——打印书籍。
