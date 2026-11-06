@@ -1,0 +1,1289 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html><html xml:lang="en" lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Go in Action, Second Edition</title><link rel="stylesheet" type="text/css" href="../Styles/stylesheet.css"/></head><body><div id="book-content"><div id="sbo-rt-content"><div class="readable-text" id="p1"> 
+   <h1 class=" readable-text-h1"><span class="chapter-title-numbering"><span class="num-string">3</span> </span><span class="chapter-title-text">Primitive types and operators</span></h1> 
+  </div> 
+  <div class="introduction-summary"> 
+   <h3 class="introduction-header"><span class="CharOverride-2">This chapter covers</span><span class="CharOverride-2"></span></h3> 
+   <ul> 
+    <li class="readable-text" id="p2"><span class="CharOverride-3">Numeric types and numeric operations</span></li> 
+    <li class="readable-text" id="p3"><span class="CharOverride-3">The </span><code>bool</code><span class="CharOverride-3"> type</span></li> 
+    <li class="readable-text" id="p4"><span class="CharOverride-3">Structs</span></li> 
+    <li class="readable-text" id="p5"><span class="CharOverride-3">Pointers</span></li> 
+    <li class="readable-text" id="p6"><span class="CharOverride-3">Strings, runes, and string manipulation</span></li> 
+   </ul> 
+  </div> 
+  <div class="readable-text" id="p7"> 
+   <p>Go comes with a number of <em>types</em> built into the language for some of the most common computing tasks, such as working with numbers, strings, and Boolean types. In a statically typed language like Go, these built-in types are often called <em>primitive types</em> because they are the building blocks for all the other types in the language.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p8"> 
+   <p>Primitive types are the most fundamental tools in your toolbelt when building software with Go, and you will use them in every program you write. If you think of writing software as building a house, the types in this chapter are like the nails and screws that hold everything together.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p9"> 
+   <p>In this chapter, you’ll learn more about these fundamental types, along with some tips for using them most effectively.</p> 
+  </div> 
+  <div class="readable-text" id="p10"> 
+   <h2 class=" readable-text-h2"><span class="num-string">3.1</span> Integer types</h2> 
+  </div> 
+  <div class="readable-text" id="p11"> 
+   <p>Integer types store whole numbers within a certain range, depending on their size. In Go, we have two varieties of integer—signed and unsigned, which are outlined in table 3.1—and there are several different size variations for each, as well as a couple of alias types that declare alternate names for certain circumstances. Integer types are very common in Go and are used for basic math, array and slice indices, and configuration arguments for many of the standard library functions.</p> 
+  </div> 
+  <div class="browsable-container browsable-table-container" id="p12"> 
+   <h5 class=" browsable-container-h5">Table 3.1 Predeclared integer types</h5> 
+   <table> 
+    <colgroup> 
+     <col class="_idGenTableRowColumn-1"/> 
+     <col class="_idGenTableRowColumn-2"/> 
+     <col class="_idGenTableRowColumn-3"/> 
+    </colgroup> 
+    <thead> 
+     <tr class="No-Table-Style _idGenTableRowColumn-4"> 
+      <th class="No-Table-Style CellOverride-1" scope="col"> <p class="_TableHead">Type name</p> </th> 
+      <th class="No-Table-Style CellOverride-2" scope="col"> <p class="_TableHead">Description</p> </th> 
+      <th class="No-Table-Style CellOverride-3" scope="col"> <p class="_TableHead">Value vange</p> </th> 
+     </tr> 
+    </thead> 
+    <tbody> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-4"> <p class="_TableBody"><code>int</code></p> </td> 
+      <td class="No-Table-Style CellOverride-5"> <p class="_TableBody">Signed integers</p> </td> 
+      <td class="No-Table-Style CellOverride-6"> <p class="_TableBody">32 or 64 bits, depending on your architecture</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>int8</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">Signed 8-bit integers</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">-128 to 127</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>int16</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">Signed 16-bit integers</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">-32,768 to 32,767</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>int32</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">Signed 32-bit integers</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">-2,147,483,648 to 2,147,483,647</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-6"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>int64</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">Signed 64-bit integers</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">-9,223,372,036,854,775,808 to 9,223,372,036,854,775,807</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>uint</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">Unsigned integers</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">32 or 64 bits, depending on your architecture</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>uint8</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">Unsigned 8-bit integers</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">0 to 255</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>uint16</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">Unsigned 16-bit integers</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">0 to 65,535</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>uint32</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">Unsigned 32-bit integers</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">0 to 4,294,967,295</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>uint64</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">Unsigned 64-bit integers</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">0 to 18,446,744,073,709,551,615</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>byte</code></p> </td> 
+      <td class="No-Table-Style CellOverride-10"> <p class="_TableBody">An alias for <code>uint8</code></p> </td> 
+      <td class="No-Table-Style CellOverride-9"></td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-11"> <p class="_TableBody"><code>rune</code></p> </td> 
+      <td class="No-Table-Style CellOverride-12"> <p class="_TableBody">An alias for <code>int32</code></p> </td> 
+      <td class="No-Table-Style CellOverride-13"></td> 
+     </tr> 
+    </tbody> 
+   </table> 
+  </div> 
+  <div class="readable-text" id="p13"> 
+   <p>The types that start with <code>int</code> are the <em>signed integers</em>, which are stored in two’s complement format, allowing them to represent positive and negative values. The types that start with <code>uint</code> are <em>unsigned integers</em>, and these types can store only positive values starting from 0. You might notice that the range of positive values for unsigned integers is larger than for the corresponding signed equivalent. This is because signed integers reserve one of their bits to indicate whether the value is negative. Unsigned integers have a few quirks that make them useful for a narrower range of purposes, which we will discuss later in the chapter.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p14"> 
+   <p>Types with a numeric suffix, such as <code>int64</code> or <code>uint8</code>, are <em>constant-sized</em> or <em>architecture-­independent</em> types, and the number indicates the size of each type in bits. These types will always consume the same amount of memory and have the same range of values whether they are run on a 32-bit or 64-bit system. </p> 
+  </div> 
+  <div class="readable-text intended-text" id="p15"> 
+   <p>By contrast, the <code>int</code> and <code>uint</code> types are <em>architecture-dependent</em>, which means they will be either 32 or 64 bits in size, depending on the architecture of the system they are compiled for. These types are provided to give you general-purpose default integer types that will perform optimally, no matter which architecture they are compiled for.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p16"> 
+   <p>Rounding out the list, <code>byte</code> and <code>rune</code> are aliases that give more meaningful names to integer values in certain contexts. <code>byte</code> is an alias for <code>uint8</code> because it is extremely common to refer to data in terms of 8-bit chunks, or “bytes.” All of these types are represented in memory in similar ways, as outlined in figure 3.1. </p> 
+  </div> 
+  <div class="readable-text intended-text" id="p17"> 
+   <p>The alias was created to distinguish between when code is dealing with data and when it is dealing with a numeric value. This convention is ubiquitous in the Go ecosystem, and you’ll run across many functions in the standard library and elsewhere that either accept or return data as a sequence of bytes (<code>[]byte</code>) represented as slice of bytes. Similarly, <code>rune</code> is exactly the same as <code>int32</code>, except that it is used when talking about Unicode characters in a string. We’ll cover this in greater detail when we explore the <code>string</code> type in section 3.8.</p> 
+  </div> 
+  <div class="browsable-container figure-container " id="p18">  
+   <img alt="" src="../Images/CH03_F01_Kennedy2.png" style="width: 100%; max-width: max-content;" width="456" height="268"/> 
+   <h5 class=" figure-container-h5">Figure 3.1 Integer type sizes in nemory</h5>
+  </div> 
+  <div class="readable-text" id="p19"> 
+   <p>As you learned in chapter 2, variables can be declared using the <code>var</code> keyword with an optional value, or with the short declaration operator <code>:=</code>, which declares the variable and sets the value at the same time. Integers declared with <code>var</code> will be of whatever type you choose and will receive the zero value of <code>0</code> if you don’t assign one. Integers declared with a short declaration will receive the type <code>int</code> along with whatever value you assign.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p20"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.1 Declaring and initializing integer values</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// Declare a variable with a type of int (and a default value of 0).
+var myInt int
+
+// Declare variable with type int64
+var largeInt int64
+
+// Use short declaration to create variable with type int and a value
+// of 3.
+i := 3
+
+// Use a type conversion if you want to use short declaration with other
+// integer types.
+u := uint64(4)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p21"> 
+   <p>The values <code>3</code> and <code>4</code> in the preceding listing are known as <em>integer literals</em>, another term for an integer value appearing directly in the code. Integer literals can be positive or negative and can be written in base 10, hexadecimal, octal, or binary notation, depending on the prefix.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p22"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.2 Integer declaration with various notations</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// These are different ways of writing the same value.
+decInt := 1000         // Base 10 Notation          (no prefix)
+hexInt := 0x3E8        // Hexadecimal Notation      (Prefix: "0x")
+octInt := 01750		   // Octal Notation            (Prefix: "0")
+octInt = 0o1750        // Alternate Octal Notation  (Prefix: "0o")
+binInt := 0b1111101000 // Binary Notation           (Prefix: "0b")
+
+// Optional underscores can be used to separate digits for readability.
+withSep := 1_000
+hexWithSep := 0x3_E_8
+
+// Notation is purely cosmetic, and does not affect value:
+fmt.Println(decInt, hexInt, octInt, binInt, withSep, hexWithSep)
+// Output: 1000 1000 1000 1000 1000 1000
+
+// Negative integer literals:
+negativeInt := -10
+negativeHexInt := -0xa</pre>  
+   </div> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p23"> 
+    <h5 class=" callout-container-h5 readable-text-h5">What are literals?</h5> 
+   </div> 
+   <div class="readable-text" id="p24"> 
+    <p>A <em>literal</em> or <em>constant value</em> is an explicit, fixed value that appears in your source code. Literals indicate that the value being assigned is specified in the source, as opposed to coming from somewhere else, such as a variable or function call. When you make an assignment such as <code>myInt := 5</code> or <code>myString = </code><code>"</code><code>hello</code><code>"</code>, the <code>5</code> and the <code>"</code><code>hello</code><code>"</code> are literals.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p25"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.1.1</span> Choosing an integer type</h3> 
+  </div> 
+  <div class="readable-text" id="p26"> 
+   <p>With so many integer types to choose from, it helps to know which types you might want to use for what purposes. For most tasks, you will probably want to reach for <code>int</code> first, since it can represent both positive and negative values and will be the most efficient integer type for your architecture. It will also mean less work for you in terms of conversions, because it is</p> 
+  </div> 
+  <ul> 
+   <li class="readable-text" id="p27">The default type for integer literals</li> 
+   <li class="readable-text" id="p28">The most common integer type in standard library functions and most third-party packages</li> 
+   <li class="readable-text" id="p29">The type returned by built-in functions such as <code>len()</code> and <code>cap()</code><code></code> </li> 
+   <li class="readable-text" id="p30">The type used for indices in for-range loops</li> 
+  </ul> 
+  <div class="readable-text" id="p31"> 
+   <p><code>int64</code> is the largest native integer type in the language, and you’ll find it used in the standard library for values that need the greatest range, such as timestamps, file offsets, and size limits. If you need the full range of values provided by <code>int64</code>, or if you will be making many calls to functions that take an <code>int64</code> as an argument, it can sometimes be helpful to have a value of this type for compatibility. Otherwise, you can just convert from <code>int</code> as needed.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p32"> 
+   <p>As for the rest of the signed types (<code>int32</code>, <code>int16</code>, and <code>int8</code>), consider them on an as-needed basis if they are required for compatibility or if there are measurable performance reasons for using them. If you don’t <em>know</em> you need them, you probably don’t. Try to avoid using another type just because it “takes less memory,” since this is a form of premature optimization and will come with extra overhead in type conversions to interoperate with more common types. When in doubt, run benchmarks and profile your programs to ensure that your choice of types is really the problem (usually it’s not).</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p33"> 
+   <p>Unsigned integers can be a bit trickier to use correctly because they can easily “wrap around,” especially when values are small. You can see this in action by subtracting from an unsigned integer to create a value that would otherwise be negative.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p34"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.3 Subtracting from an unsigned integer</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">var u uint64 // 0
+u = u - 1
+
+fmt.Println(u) // output: 18446744073709551615</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p35"> 
+   <p>All of a sudden, the result is much larger! This happens because the value of <code>u</code> is already as low as it can go, so subtracting causes the bits to “wrap around” from 0 to the maximum value the type can hold. You can think of this as a bit like an odometer in reverse: once the value bottoms out at 0, the bits roll back around again. Figure 3.2 illustrates this as being similar to an odometer.</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p36">  
+   <img alt="" src="../Images/CH03_F02_Kennedy2.png" style="width: 100%; max-width: max-content;" width="205" height="208"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 3.2 Unsigned integer wraparound</span></h5>
+  </div> 
+  <div class="readable-text" id="p37"> 
+   <p>This behavior is common to all integer types when they reach the limits of the values they can contain, but it’s much more likely with unsigned integers because they start at the edge of their range.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p38"> 
+   <p>A similar condition can arise when exposing unsigned integers as function arguments. It can be tempting to declare functions that take unsigned integers to indicate that only positive values are accepted, but doing so can have unintended consequences.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p39"> 
+   <p>Consider the following function, which takes a <code>uint</code> to try to ensure that it accepts only positive values.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p40"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.4 Function taking an unsigned int</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// OnlyPositive only accepts positive values.
+func OnlyPositive(u uint) {
+	fmt.Println("positive value is", u)
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p41"> 
+   <p>If you call the function with a negative literal value, this will appear to work as intended because the compiler can recognize that a negative value cannot go into an unsigned variable.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p42"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.5 Calling an unsigned int function with an explicitly negative value</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func main() {
+	OnlyPositive(-1)
+}
+// error: cannot use -1 (untyped int constant) as uint value in argument to
+// OnlyPositive (overflows)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p43"> 
+   <p>But functions are not always called with literal values. You may have a situation where a user wishes to pass an <code>int</code> value to your function, which means they need to convert their <code>int</code> to a <code>uint</code> first. This is where it can go horribly wrong.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p44"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.6 Calling a function that takes a uint with a converted negative value</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func main() {
+	// User has a signed integer value from somewhere else that is
+	// unintentionally negative.
+	configVal := GetConfigValue() // returns int(-1)
+
+	// They need to convert it to call your function, but wait...
+	OnlyPositive(uint(configVal))
+}
+// output: positive value is 18446744073709551615</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p45"> 
+   <p>All of a sudden, it’s the maximum value again! This time it’s because the signed value passed is negative, and negative signed values contain a lot of 1s, thanks to two’s complement, so you’re back in a similar situation, only it’s much harder to spot ahead of time. Bugs like this can be tough to find once they bite you.</p> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p46"> 
+   <p><span class="print-book-callout-head">Note</span> The full particulars of two’s complement are beyond the scope of this book, but you’re encouraged to look it up if you’re curious. Go is far from the only language to use this technique, and this potential pitfall is shared by all languages that represent numbers in this way.</p> 
+  </div> 
+  <div class="readable-text" id="p47"> 
+   <p>To avoid this pitfall, it’s better to take an <code>int</code> and handle negative values yourself. The simplest option is to return an error if a negative value is unacceptable, along with helpful documentation on the function so that the user knows the score.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p48"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.7 Checking for a negative value and returning an error</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// BetterOnlyPositive only accepts positive values. An error will be
+// returned if a negative value is passed.
+func BetterOnlyPositive(i int) error {
+	if i &lt; 0 {
+		return fmt.Errorf("value must be positive!")
+	}
+	fmt.Println("positive value is", i)
+	return nil
+}
+
+func main() {
+	configVal := GetConfigValue() // returns int(-1)
+
+	if err := BetterOnlyPositive(configVal); err != nil {
+		// Now you can detect the error!
+		log.Fatal(err)
+	}
+	// Output (failure):
+	// value must be positive!
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p49"> 
+   <p>Another technique is to give negative numbers a special meaning, if one applies to your use case. You can find this technique in the standard library for functions that perform an action some number of times, with negative numbers meaning “unlimited” or “as many times as necessary.” An example is <code>strings.Replace</code>, which uses negative numbers to mean “replace every occurrence.”</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p50"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.8 go doc for strings.Replace</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func Replace(s, old, new string, n int) string
+    Replace returns a copy of the string s with the first n non-overlapping
+    instances of old replaced by new. If old is empty, it matches at the
+    beginning of the string and after each UTF-8 sequence, yielding up to
+	k+1 replacements for a k-rune string. If n &lt; 0, there is no limit on the
+	number of replacements.</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p51"> 
+   <p><span class="print-book-callout-head">Tip</span> Do not use unsigned integers to mean “I don’t accept positive values.” Instead, use a signed integer and either return an error if it’s negative or use negative numbers as a “special” value, if your use case supports it.</p> 
+  </div> 
+  <div class="readable-text" id="p52"> 
+   <p>This doesn’t mean you shouldn’t use unsigned integers, though! One place unsigned integers are useful is in bitwise operations, where they are treated as large bit fields and you don’t have to worry about the sign bit. Unsigned integers are much more predictable when shifting bits around, since they always shift in a <code>0</code> because we are not concerned about whether this is a positive or negative number, while signed integers have special behavior when shifting from the right and will use whatever their sign bit happens to be (this is another two’s complement behavior). Figure 3.3 outlines how this works.</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p53">  
+   <img alt="" src="../Images/CH03_F03_Kennedy2.png" style="width: 100%; max-width: max-content;" width="391" height="176"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 3.3 Right shifting in signed and unsigned integers</span></h5>
+  </div> 
+  <div class="readable-text" id="p54"> 
+   <p>When doing bitwise operations on unsigned values, the opposite advice applies to picking a signed type: you will probably want to stick to sized variants for these kinds of operations. This is because they have exact sizes, which is almost always what you want when doing bit manipulation, since it models the data in memory more precisely. The <code>uint</code> type doesn’t provide this, because its length changes depending on the architecture, so you won’t have as much use for this type.</p> 
+  </div> 
+  <div class="readable-text" id="p55"> 
+   <h2 class=" readable-text-h2"><span class="num-string">3.2</span> Floating-point number types</h2> 
+  </div> 
+  <div class="readable-text" id="p56"> 
+   <p>Floating-point types are used when you need a number with a fractional (or decimal) part, such as when calculating percentages or doing scientific calculations. These numbers can represent a greater range of values than integers, at the cost of some precision.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p57"> 
+   <p>Go provides two types that implement the IEEE-754 standard for binary floating-­point number representation outlined in table 3.2.</p> 
+  </div> 
+  <div class="browsable-container browsable-table-container" id="p58"> 
+   <h5 class=" browsable-container-h5">Table 3.2 Predeclared floating-point types</h5> 
+   <table> 
+    <colgroup> 
+     <col class="_idGenTableRowColumn-7"/> 
+     <col class="_idGenTableRowColumn-8"/> 
+    </colgroup> 
+    <thead> 
+     <tr class="No-Table-Style _idGenTableRowColumn-4"> 
+      <th class="No-Table-Style CellOverride-1" scope="col"> <p class="_TableHead">Type name</p> </th> 
+      <th class="No-Table-Style CellOverride-3" scope="col"> <p class="_TableHead">Description</p> </th> 
+     </tr> 
+    </thead> 
+    <tbody> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-4"> <p class="_TableBody"><code>float32</code></p> </td> 
+      <td class="No-Table-Style CellOverride-6"> <p class="_TableBody">Single-precision floating-point numbers</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-11"> <p class="_TableBody"><code>float64</code></p> </td> 
+      <td class="No-Table-Style CellOverride-13"> <p class="_TableBody">Double-precision floating-point numbers</p> </td> 
+     </tr> 
+    </tbody> 
+   </table> 
+  </div> 
+  <div class="readable-text" id="p59"> 
+   <p><code>float32</code> takes up 32 bits of memory, while <code>float64</code> takes up 64 bits, giving it greater precision. Figure 3.4 illustrates the difference in memory allocation. If you’re coming from C or Java, these are equivalent to the <code>float</code> and <code>double</code> types, respectively.</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p60">  
+   <img alt="" src="../Images/CH03_F04_Kennedy2.png" style="width: 100%; max-width: max-content;" width="291" height="133"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 3.4 Floating-point type sizes in memory</span></h5>
+  </div> 
+  <div class="readable-text" id="p61"> 
+   <p>As with integer declarations, floating-point variables declared with <code>var</code> get a value of <code>0</code> if no value is specified, while floating-point numbers declared with a short declaration get a type of <code>float64</code> by default.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p62"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.9 Declaring and initializing floating-point types</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// Declare a variable doubleFloat with type float64 (and a default
+// value of 0).
+var doubleFloat float64
+
+// Declare a variable with type float32.
+var singleFloat float32
+
+// Use short declaration to create a variable f with type float64 and a
+// value of 12.1.
+f := 12.1
+
+// Use a type conversion if you want to use short declaration with float32.
+g := float32(12.1)</pre>  
+   </div> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p63"> 
+    <h5 class=" callout-container-h5 readable-text-h5">Why isn’t there a plain float type?</h5> 
+   </div> 
+   <div class="readable-text" id="p64"> 
+    <p>You may have noticed that, while Go provides architecture-dependent <code>int</code> and <code>uint</code> types, there is no corresponding architecture-dependent type for floating-point numbers. This is because the bit size of floating-point numbers is very important for precision, so early in the evolution of the language, it was decided to require an explicit choice. This is also why there is no <code>complex</code> type: complex numbers are made up of a combination of two floating-point values.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p65"> 
+   <p>To assign floating-point values using literals, you can add a decimal point (<code>.</code>) to tell the compiler that you want a floating-point value instead of an integer. You can leave out either the integer or fractional part if you want, so <code>1.0</code>, <code>1.</code>, <code>0.1</code>, and <code>.1</code> all work. Another option is to use scientific notation by adding the <code>e</code> character to your number, followed by a positive or negative integer exponent.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p66"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.10 Floating-point literal notations</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// The following are different ways to write the same value.
+floatVal = 12.         // fractional part is optional
+floatVal = 12e0        // decimal point not required with exponent
+floatVal = 012.        // leading zero is fine
+floatVal = .12e+2      // integer part is optional
+floatVal = 1_2.        // underscores allowed in floats, too
+floatVal = float64(12) // explicit type for otherwise integer literal
+
+fmt.Println(floatVal, myFloat)
+// Output: 12 12
+
+// Floats can be negative.
+negativeFloat := -12.0
+
+fmt.Println(negativeFloat)
+// Output: -12</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p67"> 
+   <p><span class="print-book-callout-head">Note</span> The easiest way to use an integer value as a floating point is to add a decimal point at the end (<code>12.</code> instead of <code>12</code>), but you can also wrap the literal with a floating-point type if you want to be more explicit, like so: <code>x:=float64(12)</code>.</p> 
+  </div> 
+  <div class="readable-text" id="p68"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.2.1</span> Special floating-point values</h3> 
+  </div> 
+  <div class="readable-text" id="p69"> 
+   <p>The standard Go compiler does not do any special checks for floating-point math in cases of overflow, division by zero, or operations that are not mathematically valid, such as taking the natural logarithm of a negative number. In these situations, the value will be set as shown in table 3.3 (these values are defined by the IEEE-754 standard).</p> 
+  </div> 
+  <div class="browsable-container browsable-table-container" id="p70"> 
+   <h5 class=" browsable-container-h5">Table 3.3 Special floating-point values</h5> 
+   <table> 
+    <colgroup> 
+     <col class="_idGenTableRowColumn-9"/> 
+     <col class="_idGenTableRowColumn-10"/> 
+    </colgroup> 
+    <thead> 
+     <tr class="No-Table-Style _idGenTableRowColumn-4"> 
+      <th class="No-Table-Style CellOverride-1" scope="col"> <p class="_TableHead">Value</p> </th> 
+      <th class="No-Table-Style CellOverride-3" scope="col"> <p class="_TableHead">Description</p> </th> 
+     </tr> 
+    </thead> 
+    <tbody> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-14"> <p class="_TableBody">+Inf</p> </td> 
+      <td class="No-Table-Style CellOverride-6"> <p class="_TableBody">Positive infinity</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-15"> <p class="_TableBody">-Inf</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">Negative infinity</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-16"> <p class="_TableBody">NaN</p> </td> 
+      <td class="No-Table-Style CellOverride-13"> <p class="_TableBody">Not a number</p> </td> 
+     </tr> 
+    </tbody> 
+   </table> 
+  </div> 
+  <div class="readable-text" id="p71"> 
+   <p>These values can be checked with the <code>math.IsInf</code> and <code>math.IsNaN</code> functions, respectively. </p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p72"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.11 Checking for special floating-point values</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">f := 2.0
+// Make an "infinitely huge" number.
+posInf := math.Pow(f, 10_000)
+fmt.Println(posInf) // output: +Inf
+
+// Make an "infinitely small" number.
+negInf := f - math.Pow(f, 10_000)
+fmt.Println(negInf) // output: -Inf
+
+// The second argument to math.IsInf lets you check for a specific infinity:
+// &lt;0: negative infinity
+// &gt;0: positive infinity
+// 0: either infinity
+fmt.Println(math.IsInf(posInf, 0))  // true
+fmt.Println(math.IsInf(negInf, 1))  // false
+fmt.Println(math.IsInf(negInf, -1)) // true
+
+// Make an invalid number.
+notANumber := math.Log(-f)
+fmt.Println(notANumber) // output: NaN
+
+fmt.Println(math.IsNaN(notANumber)) // true</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p73"> 
+   <p><span class="print-book-callout-head">Tip</span> Make sure you use the checks in the <code>math</code> package if there’s a possibility that you could generate floating-point numbers that are invalid or out of range.</p> 
+  </div> 
+  <div class="readable-text" id="p74"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.2.2</span> Choosing a floating-point type</h3> 
+  </div> 
+  <div class="readable-text" id="p75"> 
+   <p>For floating-point operations, you should pick <code>float64</code> unless you have a compelling performance reason to do otherwise. Most modern hardware, including 32-bit architectures, has special support for 64-bit floating-point numbers, so there is little reason to sacrifice the greater precision by using <code>float32</code>.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p76"> 
+   <p>As with integer types, you should use <code>float32</code> only if you are trying to decrease memory consumption or improve performance and have determined that using <code>float64</code> is a significant bottleneck.</p> 
+  </div> 
+  <div class="readable-text" id="p77"> 
+   <h2 class=" readable-text-h2"><span class="num-string">3.3</span> Complex number types</h2> 
+  </div> 
+  <div class="readable-text" id="p78"> 
+   <p>Complex numbers are a type of value that has both real and imaginary parts; they are useful in calculations for physics, signal analysis, and other fields. Many languages implement complex numbers in special libraries, but Go has them as native types. Complex types in Go are made up of two floating-point values representing the real and imaginary parts of the number, which makes them double the size of the float type used to implement them (see table 3.4). Figure 3.5 shows a size comparison in memory for these types.</p> 
+  </div> 
+  <div class="browsable-container browsable-table-container" id="p79"> 
+   <h5 class=" browsable-container-h5">Table 3.4 Predeclared Complex Types</h5> 
+   <table> 
+    <colgroup> 
+     <col class="_idGenTableRowColumn-11"/> 
+     <col class="_idGenTableRowColumn-12"/> 
+    </colgroup> 
+    <thead> 
+     <tr class="No-Table-Style _idGenTableRowColumn-4"> 
+      <th class="No-Table-Style CellOverride-1" scope="col"> <p class="_TableHead">Type Name</p> </th> 
+      <th class="No-Table-Style CellOverride-3" scope="col"> <p class="_TableHead">Usage</p> </th> 
+     </tr> 
+    </thead> 
+    <tbody> 
+     <tr class="No-Table-Style _idGenTableRowColumn-13"> 
+      <td class="No-Table-Style CellOverride-14"> <p class="_TableBody"><code>complex64</code></p> </td> 
+      <td class="No-Table-Style CellOverride-6"> <p class="_TableBody">Complex numbers with <code>float32</code> real and imaginary parts</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-13"> 
+      <td class="No-Table-Style CellOverride-16"> <p class="_TableBody"><code>complex128</code></p> </td> 
+      <td class="No-Table-Style CellOverride-13"> <p class="_TableBody">Complex numbers with <code>float64</code> real and imaginary parts</p> </td> 
+     </tr> 
+    </tbody> 
+   </table> 
+  </div> 
+  <div class="browsable-container figure-container " id="p80">  
+   <img alt="" src="../Images/CH03_F05_Kennedy2.png" style="width: 100%; max-width: max-content;" width="553" height="224"/> 
+   <h5 class=" figure-container-h5">Figure 3.5 Complex type sizes in memory</h5>
+  </div> 
+  <div class="readable-text" id="p81"> 
+   <p>Complex numbers are a bit different from the other primitive types because they need to be declared using either the special built-in <code>complex()</code> function or special complex expressions.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p82"> 
+   <p>The <code>complex()</code> function takes two arguments, which are treated as float values and determine the type of the resulting complex value. If the values are <code>float64</code> or literals, the result has the type <code>complex128</code>. If the values are <code>float32</code>, the result is a <code>complex64</code>. Types cannot be mixed.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p83"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.12 Creating complex values using the built-in complex() function</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">cmplxValue1 := complex(1.1, 2.2)                   // complex128
+cmplxValue2 := complex(float32(1.1), float32(2.2)) // complex64
+
+cmplxValue3 := complex(1, 2)       // complex128, equivalent to 1+2i
+cmplxValue4 := complex(0, -3)      // complex128, equivalent to 0-3i
+cmplxValue5 := complex(-3.3, -4.4) // complex128, equivalent to -3.3-4.4i</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p84"> 
+   <p>Complex expression declarations take the form of an optional numeric value, which can be a float or an integer literal, followed by a <code>+</code> or <code>-</code>, and then an imaginary literal, which is a numeric value followed by the <code>i</code> character.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p85"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.13 Creating complex values with complex expressions</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">cmplxValue1 = 1.1 + 2.2i  // equivalent to complex(1.1, 2.2)
+cmplxValue3 = 1 + 2i      // equivalent to complex(1,2)
+cmplxValue4 = -3i         // equivalent to complex(0, -3)
+cmplxValue5 = -3.3 - 4.4i // equivalent to complex(-3.3,-4.4)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p86"> 
+   <p>Go also has special built-in <code>real</code> and <code>imag</code> functions that can be used to extract the floating-point components that make up a complex number. In essence, these are the inverse of the <code>complex</code> function and return <code>float32</code> or <code>float64</code> values, depending on the type.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p87"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.14 Using the real() and imag() functions</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">c1 := complex(1.1, 2.2)
+fmt.Println(real(c1), imag(c1)) // "1.1 2.2"</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p88"> 
+   <p>Complex types in Go are rarely used on their own because most of the useful functions for manipulating them reside in the <code>math</code> and <code>math/cmplx</code> packages. Additionally, most uses of complex numbers are relatively niche and… well, honestly, they’re pretty complex. Most programmers could go years without using them even once, but it’s important to know that they exist.</p> 
+  </div> 
+  <div class="readable-text" id="p89"> 
+   <h2 class=" readable-text-h2"><span class="num-string">3.4</span> Mathematical operators</h2> 
+  </div> 
+  <div class="readable-text" id="p90"> 
+   <p>Numeric types are kind of boring if you can’t do math with them, so Go defines all the basic arithmetic operations you’d expect (listed in table 3.5), along with bitwise operations for manipulating the individual bits of integer values.</p> 
+  </div> 
+  <div class="browsable-container browsable-table-container" id="p91"> 
+   <h5 class=" browsable-container-h5">Table 3.5 Binary Arithmetic Operators</h5> 
+   <table> 
+    <colgroup> 
+     <col class="_idGenTableRowColumn-14"/> 
+     <col class="_idGenTableRowColumn-15"/> 
+     <col class="_idGenTableRowColumn-16"/> 
+    </colgroup> 
+    <thead> 
+     <tr class="No-Table-Style _idGenTableRowColumn-4"> 
+      <th class="No-Table-Style CellOverride-1" scope="col"> <p class="_TableHead">Operator</p> </th> 
+      <th class="No-Table-Style CellOverride-2" scope="col"> <p class="_TableHead">Description</p> </th> 
+      <th class="No-Table-Style CellOverride-3" scope="col"> <p class="_TableHead">Types</p> </th> 
+     </tr> 
+    </thead> 
+    <tbody> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-4"> <p class="_TableBody"><code>+</code></p> </td> 
+      <td class="No-Table-Style CellOverride-5"> <p class="_TableBody">sum</p> </td> 
+      <td class="No-Table-Style CellOverride-6"> <p class="_TableBody">integers, floating-point, complex, strings</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>-</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">difference</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">integers, floating-point, complex</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>*</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">product</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">integers, floating-point, complex</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-7"> <p class="_TableBody"><code>/</code></p> </td> 
+      <td class="No-Table-Style CellOverride-8"> <p class="_TableBody">quotient</p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">integers, floating-point, complex</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-5"> 
+      <td class="No-Table-Style CellOverride-11"> <p class="_TableBody"><code>%</code></p> </td> 
+      <td class="No-Table-Style CellOverride-17"> <p class="_TableBody">remainder</p> </td> 
+      <td class="No-Table-Style CellOverride-13"> <p class="_TableBody">integers</p> </td> 
+     </tr> 
+    </tbody> 
+   </table> 
+  </div> 
+  <div class="readable-text" id="p92"> 
+   <p>With the exception of the remainder (or modulo) operator <code>%</code>, binary arithmetic operators apply to all numeric types and return the corresponding types of their operands. Importantly, operations must be performed on values of the same type or on literals that can represent that type.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p93"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.15 Examples of arithmetic in Go</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">	a := 7
+	b := 3
+
+	var i int
+	var c int
+	i = a + b // 10
+	i = a - b // 4
+	i = b - a // -4
+	i = a * b // 21
+	i = a % b // 1
+
+	// Divide by zero can be caught by the compiler if the 0 is a literal.
+	//c = a / 0  // error: invalid operation: division by zero
+
+	// Otherwise, divide by zero is a runtime panic.
+	zero := 0
+	c = a / zero // panic: runtime error: integer divide by zero
+
+	// Float divide by zero does not panic and will result in an infinite
+	// value.
+	f := 1.0
+	f = f / float64(zero) // +Inf
+
+	u := uint64(1)
+	u = u + i // error: mismatched types uint64 and int
+	// Type conversion is needed to allow different types to work together.
+	u = u + uint64(i) // 2</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p94"> 
+   <p>Bitwise operations operate only on integers and will be familiar if you have worked with them in other languages (see table 3.6). The exception is the bit clear operator <code>&amp;^</code>, which is unique to Go and can be thought of as the opposite of bitwise OR (<code>|</code>): all of the <code>1</code> bits in the second operand are set to <code>0</code> in the result.</p> 
+  </div> 
+  <div class="browsable-container browsable-table-container" id="p95"> 
+   <h5 class=" browsable-container-h5">Table 3.6 Bitwise operators (integers only)</h5> 
+   <table> 
+    <colgroup> 
+     <col class="_idGenTableRowColumn-17"/> 
+     <col class="_idGenTableRowColumn-18"/> 
+    </colgroup> 
+    <thead> 
+     <tr class="No-Table-Style _idGenTableRowColumn-4"> 
+      <th class="No-Table-Style CellOverride-1" scope="col"> <p class="_TableHead">Operator</p> </th> 
+      <th class="No-Table-Style CellOverride-3" scope="col"> <p class="_TableHead">Description</p> </th> 
+     </tr> 
+    </thead> 
+    <tbody> 
+     <tr class="No-Table-Style _idGenTableRowColumn-13"> 
+      <td class="No-Table-Style CellOverride-14"> <p class="_TableBody"><code>&amp;</code></p> </td> 
+      <td class="No-Table-Style CellOverride-6"> <p class="_TableBody">AND</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-13"> 
+      <td class="No-Table-Style CellOverride-15"> <p class="_TableBody"><code>|</code></p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">OR</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-13"> 
+      <td class="No-Table-Style CellOverride-15"> <p class="_TableBody"><code>^</code></p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">XOR</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-13"> 
+      <td class="No-Table-Style CellOverride-15"> <p class="_TableBody"><code>&amp;^</code></p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">Bit clear</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-13"> 
+      <td class="No-Table-Style CellOverride-15"> <p class="_TableBody"><code>&lt;&lt;</code></p> </td> 
+      <td class="No-Table-Style CellOverride-9"> <p class="_TableBody">Shift left</p> </td> 
+     </tr> 
+     <tr class="No-Table-Style _idGenTableRowColumn-13"> 
+      <td class="No-Table-Style CellOverride-16"> <p class="_TableBody"><code>&gt;&gt;</code></p> </td> 
+      <td class="No-Table-Style CellOverride-13"> <p class="_TableBody">Shift right</p> </td> 
+     </tr> 
+    </tbody> 
+   </table> 
+  </div> 
+  <div class="readable-text" id="p96"> 
+   <h2 class=" readable-text-h2"><span class="num-string">3.5</span> The bool type</h2> 
+  </div> 
+  <div class="readable-text" id="p97"> 
+   <p>Go has a dedicated <code>bool</code> type for representing Boolean (true/false) values. Values of this type can have one of two predeclared values, <code>true</code> or <code>false</code>, and have a zero value of <code>false</code>. <code>bool</code> is also the default type for Boolean expressions, so short variable declarations such as <code>value := x ⇐ y</code> create variables of this type.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p98"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.16 Examples of Boolean values</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">var boolVar bool // Defaults to false
+
+// Boolean variables can be used for conditionals, either
+// on their own, or as part of a boolean expression. In this case,
+// boolVar has not been explicitly set to anything yet, so its value is
+// false, and the if block will not run.
+if boolVar {
+	fmt.Println("boolVal is true.")
+}
+
+// Once boolVar is set to true, the same if condition will pass and the
+// block will run.
+boolVar = true
+if boolVar {
+	fmt.Println("NOW boolVal is true!")
+}
+
+// Short declaration variables assigned to boolean expressions will be
+// given the bool type.
+x := 0
+y := 1
+v := x &lt; y // Type: bool, value: true.</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p99"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.5.1</span> Boolean functions</h3> 
+  </div> 
+  <div class="readable-text" id="p100"> 
+   <p>Booleans are used primarily in conditional logic, such as <code>if</code> statements, often as the return value for a helper function intended to give you a yes-or-no answer about a particular condition or a meaningfully named piece of data. For example, if you wanted to print all of the even items from a list of integers, you might write a helper function called <code>IsEven</code> that would take an integer value and return a Boolean indicating whether the number was evenly divisible by two.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p101"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.17 A Boolean helper function for use in conditional logic</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func IsEven(i int) bool {
+	return i%2 == 0
+}
+
+func main() {
+	numbers := []int{1, 2, 3, 4}
+	for _, n := range numbers {
+		if IsEven(n) {
+			fmt.Printf("%d is even.\n", n)
+		}
+	}
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p102"> 
+   <p>Although you could easily replace <code>IsEven</code> with a simple Boolean expression (<code>if</code> <code>n%2 == 0 {}</code>) and not lose much clarity, more complex tests, or tests that might depend on several pieces of information, will benefit greatly from having a dedicated function. A function like this allows you to keep all of the logic in one place without repeating it and to add logic to that function later if necessary without changing the calling code.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p103"> 
+   <p>For example, you might want to write a function to tell you whether a particular time is during normal working hours. This would depend on a couple of pieces of information, such as the day of the week and the time of day. By putting this logic into a function called <code>IsWorkHours()</code>, which returns a <code>bool</code> value, you could then make determinations about things like sending a push notification versus an email.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p104"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.18 Using a <code>bool</code> as a return value for a more complicated query</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// IsWorkHours returns true if the given time falls within standard working
+// hours.
+func IsWorkHours(t time.Time) bool {
+	switch t.Weekday() {
+	case time.Saturday, time.Sunday:
+		return false
+	}
+	if t.Hour() &lt; 9 || t.Hour() &gt; 17 {
+		return false
+	}
+	// TODO: Add holiday tracking
+	return true
+}
+
+func main() {
+	if IsWorkHours(time.Now()) {
+		fmt.Println("During working hours - sending a push notification.")
+		// notification sending code
+	} else {
+		fmt.Println("Outside of working hours - sending an email.")
+		// email sending code
+	}
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p105"> 
+   <p>By putting all of this logic in <code>IsWorkHours</code>, you can use the function in a conditional for any actions you want to take only during working hours. It could also be extended later to take holidays into account, as marked by the TODO.</p> 
+  </div> 
+  <div class="readable-text" id="p106"> 
+   <h2 class=" readable-text-h2"><span class="num-string">3.6</span> Struct types</h2> 
+  </div> 
+  <div class="readable-text" id="p107"> 
+   <p>Struct types are a useful way to bundle several related values into a single unit. Each struct is defined as a set of named values, called <em>fields</em>, each of which can be accessed separately.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p108"> 
+   <p>Structs are declared using the <code>struct</code> keyword, followed by a list of fields enclosed in brackets.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p109"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.19 An example <code>struct</code> type</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">var person struct {
+	name string
+	age  int
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p110"> 
+   <p>Fields can then be assigned and retrieved by name using dot notation.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p111"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.20 Setting and retrieving struct values with dot notation</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">andy.name = "Andy"
+andy.age = 42
+fmt.Println(andy.name, andy.age) // output: Andy 42</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p112"> 
+   <p>Struct variables can also be initialized with a short declaration using <em>struct literals</em>, which list the name and value for each field.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p113"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.21 Declaring a <code>struct</code> with struct literals</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">james := struct {
+	name string
+	age  int
+}{
+	name: "James",
+	age:  25,
+}
+fmt.Println(james.name, james.age) // output: James 26</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p114"> 
+   <p>There are a couple of things to note here. First, the trailing comma after the value for <code>age</code> is required. This is different from what you might expect if you have experience with JavaScript. In Go, it is always required, which makes it easier to rearrange and add lines without worrying about removing or adding commas, and it has the nice side effect of reducing the noise in diffs!</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p115"> 
+   <p>The second thing to note is that this is <em>ugly</em> and tedious. While it might be useful for declaring one-off structs, no one wants to clutter their code with a bunch of random struct definitions if they can help it!</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p116"> 
+   <p>For this reason, structs often take the form of <em>types</em>, which allows them to be reused and passed around. </p> 
+  </div> 
+  <div class="readable-text" id="p117"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.6.1</span> Structs as types</h3> 
+  </div> 
+  <div class="readable-text" id="p118"> 
+   <p>Using a structure type like this lets you give a definition a meaningful name and reuse it multiple times. With <code>person</code> declared as a type, declaring a variable is as simple as providing the type and the values for each field, which is much nicer.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p119"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.22 Using a type in a declaration</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">type person struct {
+	name string
+	age  int
+}
+
+andy := person{
+	name: "Andy",
+	age:  42,
+}
+james := person{
+	name: "James",
+	age:  26,
+}
+fmt.Println(andy.name, andy.age)   // output: Andy 42
+fmt.Println(james.name, james.age) // output: James 26</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p120"> 
+   <p>Structs and types form the basis of user-defined types in Go, and this example is just the very beginning of what’s possible. Check out chapter 5 for more information about declaring types in Go.</p> 
+  </div> 
+  <div class="readable-text" id="p121"> 
+   <h2 class=" readable-text-h2"><span class="num-string">3.7</span> Pointer types</h2> 
+  </div> 
+  <div class="readable-text" id="p122"> 
+   <p>Pointers are special types that represent the <em>location</em> of data, rather than the data itself. They provide a way to share memory across different parts of a program without needing to copy the data. This can be very useful for passing around large or complex data structures, such as those representing a connection to a database or collections of data. Pointers play a large role in Go because they are the basis for the map and slice types and they’re also a fundamental part of the type system.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p123"> 
+   <p>To define a pointer variable with <code>var</code>, add a <code>*</code> before the type to tell the compiler which type your variable will point to.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p124"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.23 Pointer variable declaration</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">var intPtr *int //intPtr is a pointer(*) to an integer value(int)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p125"> 
+   <p>As with all declarations, pointer values start out with a zero value when they are initialized. The zero value for pointers is the special variable <code>nil</code>, indicating that the pointer does not yet point to a value, as illustrated in figure 3.6.</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p126">  
+   <img alt="" src="../Images/CH03_F06_Kennedy2.png" style="width: 100%; max-width: max-content;" width="94" height="86"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 3.6 An uninitialized pointer variable</span></h5>
+  </div> 
+  <div class="readable-text" id="p127"> 
+   <p>To get an address to store in a pointer, you need to use the <em>address operator</em>, <code>&amp;</code>, which returns the memory address of the value it precedes, as shown in figure 3.7. This address value will be of the type <code>*T</code>, where <code>T</code> is the type of the object.</p> 
+  </div> 
+  <div class="browsable-container figure-container " id="p128">  
+   <img alt="" src="../Images/CH03_F07_Kennedy2.png" style="width: 100%; max-width: max-content;" width="786" height="257"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 3.7 The address operator returns the memory address of a variable.</span></h5>
+  </div> 
+  <div class="browsable-container listing-container" id="p129"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.24 Assigning the address of a value to a pointer</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// declare an integer variable
+intValue := 0
+
+var intPtr *int
+
+// get the address (&amp;) of the variable to store in the pointer
+intPtr = &amp;intValue
+
+// when the address operator is used with short declaration,
+// the new variable will automatically be the appropriate pointer type
+intPtr2 := &amp;intValue //intPtr2 is type *int</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p130"> 
+   <p>By convention, we say that the pointer variable “points to” the variable it references, and we represent this with an arrow throughout in this book for simplicity (and to avoid drawing a bunch of variables with random addresses in them). This is shown in figure 3.8.</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p131">  
+   <img alt="" src="../Images/CH03_F08_Kennedy2.png" style="width: 100%; max-width: max-content;" width="250" height="88"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 3.8 intPtr points to intVar</span></h5>
+  </div> 
+  <div class="readable-text" id="p132"> 
+   <p>The address operator is used whenever you need to get the location of a value in memory, and, with a few exceptions, you can get a pointer to almost anything.</p> 
+  </div> 
+  <div class="readable-text" id="p133"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.7.1</span> Dereferencing pointers</h3> 
+  </div> 
+  <div class="readable-text" id="p134"> 
+   <p>Once it’s assigned, the value of a pointer is just the address it points to, which you can see if you try to print the value of <code>intPtr</code>.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p135"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.25 A pointer variable just holds an address</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">fmt.Println(intPtr) //output: 0x14000122008#1</pre> 
+    <div class="code-annotations-overlay-container"> #1 The actual value will be different for every run of the program, but it will be something like this.
+     <br/>
+    </div> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p136"> 
+   <p>To access the actual value being pointed to, you need to prefix the pointer variable with a <code>*</code>, which is known as <em>dereferencing</em>. This allows you to access the value at that location in memory and even modify it if you wish.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p137"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.26 Dereferencing a pointer to access or modify its contents</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">fmt.Println(*intPtr) //output: 0
+// You can also use dereferencing to assign to the value.
+*intPtr = 1
+fmt.Println(intValue) //output: 1</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p138"> 
+   <p>Dereferencing, in effect, follows the reference to get the actual value behind it, as shown in figure 3.9.</p> 
+  </div> 
+  <div class="browsable-container figure-container " id="p139">  
+   <img alt="" src="../Images/CH03_F09_Kennedy2.png" style="width: 100%; max-width: max-content;" width="786" height="451"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 3.9 Pointer dereference vs. pointer value</span></h5>
+  </div> 
+  <div class="readable-text print-book-callout" id="p140"> 
+   <p><span class="print-book-callout-head">Important</span> To refer to the actual value being pointed to, use <code>*variableName</code>. To get the pointer address value, use <code>variableName</code>.</p> 
+  </div> 
+  <div class="readable-text" id="p141"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.7.2</span> Creating pointers with new and literals</h3> 
+  </div> 
+  <div class="readable-text" id="p142"> 
+   <p>Pointers can also be created without an intermediate value by using the address operator directly with a literal or by using the built-in <code>new</code> function.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p143"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.27 Creating pointers directly</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">type person struct {
+	name string
+	age  int
+}
+
+// These are the same.
+newPerson := new(person)
+newPerson = &amp;person{}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p144"> 
+   <p>The last two lines in the preceding listing are functionally identical, but the second form is preferred when working with struct types because it also allows you to initialize struct fields while creating the pointer.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p145"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.28 Creating a pointer with struct initialization</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">newPerson = &amp;person{
+	name: "Andy",
+	age: 42,
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p146"> 
+   <p>This is the more flexible style of pointer initialization for most types, and it’s the one you’ll use most of the time instead of <code>new</code>. The main reason to still use <code>new</code> is that it is the only way to initialize pointers to built-in types such as <code>int.</code><code></code> </p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p147"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.29 Using new to create a reference to a fundamental type</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">newIntPtr := &amp;int    // This is not allowed
+newIntPtr := &amp;int(1) // Neither is this
+
+newIntPtr := new(int) // New is required for fundamental types.</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p148"> 
+   <h2 class=" readable-text-h2"><span class="num-string">3.8</span> The string type</h2> 
+  </div> 
+  <div class="readable-text" id="p149"> 
+   <p>Textual data is important for programming languages because it allows you to display and process messages in a variety of languages. Go supports this through a combination of robust Unicode support and a dedicated <code>string</code> type.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p150"> 
+   <p><code>string</code> is a relatively simple data type in Go. It’s essentially a read-only array of bytes designed for holding text. What makes it different from the other types you’ve learned about in this chapter is how the bytes are interpreted for display and what happens when you modify the values.</p> 
+  </div> 
+  <div class="readable-text" id="p151"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.8.1</span> Interpreted strings</h3> 
+  </div> 
+  <div class="readable-text" id="p152"> 
+   <p>Go has two types of string literals, both of which can be assigned to <code>string</code> variables. The first is the <em>interpreted string</em>, which uses the double-quote (<code>""</code>) style common to most other languages.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p153"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.30 Declaring a string in Go</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">basicStr := "Hello, Gophers!"</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p154"> 
+   <p>Because Go source code supports UTF-8, any printable character is valid in a string.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p155"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.31 Declaring a string with Unicode characters</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">unicodeStr := "<span class="CharOverride-8">你好，地鼠</span>!"</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p156"> 
+   <p>Interpreted strings also support a variety of escape codes, allowing you to represent nonprintable characters such as tabs and newlines or to reference Unicode characters by their codepoint number.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p157"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.32 Strings with escape sequences</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">strWithEscapes := "Hello\n\u5730\u9F20"
+fmt.Println(strWithEscapes) // output: Hello&lt;newline&gt;<span class="CharOverride-8">地鼠</span></pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p158"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.8.2</span> Raw string values</h3> 
+  </div> 
+  <div class="readable-text" id="p159"> 
+   <p>The second type of string is enclosed with backtick characters (<code>``</code>) and is known as a <em>raw string</em>. Raw strings may span multiple lines and are interpreted literally, without any escape codes whatsoever. They also support raw Unicode characters.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p160"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.33 Declaring a raw string</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">rawString := `Hello\n\u5730\u9F20`
+fmt.Println(rawString)
+
+rawStrWithNewlines := `I can
+span <span class="CharOverride-9">विभिन्न</span> lines`
+fmt.Println(rawStrWithNewlines)</pre>  
+   </div> 
+  </div> 
+  <div class="browsable-container listing-container" id="p161"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.34 Raw string output</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">Hello\n\u5730\u9F20
+I can
+span <span class="CharOverride-9">विभिन्न</span> lines</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p162"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.8.3</span> String operations</h3> 
+  </div> 
+  <div class="readable-text" id="p163"> 
+   <p>Strings can be compared using the standard comparison operators, with “less than” and “greater than” calculated from the byte values of the strings.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p164"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.35 String operations</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">fmt.Println("hello" == "hello") // true
+
+fmt.Println("<span class="CharOverride-8">地鼠</span>" == "\u5730\u9F20") // true, these escape codes are the
+// same characters
+
+fmt.Println("<span class="CharOverride-8">地鼠</span>" == `\u5730\u9F20`) // false, escape codes do not interpret
+// in raw strings
+
+fmt.Println("abc" &lt; "cba")   // true
+fmt.Println("andy" &gt; "bill") // false</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p165"> 
+   <p>Strings can also be concatenated with the <code>+</code> operator.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p166"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.36 Basic string concatenation</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">strHello := "hello"
+strGophers := " Gophers!"
+strHello += strGophers
+fmt.Println(strHello) // output: "hello Gophers!"</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p167"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.8.4</span> len() and Unicode characters</h3> 
+  </div> 
+  <div class="readable-text" id="p168"> 
+   <p>As we touched on in the last chapter, a <code>string</code> variable is essentially just a length value coupled with a pointer to a backing array. You can use the built-in <code>len</code> function to get the length of the string in bytes, and if your string is entirely ASCII characters, this works exactly as you’d expect.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p169"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.37 Using len on an ASCII string</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">asciiCharStr := "easy, right?"
+fmt.Println(len(asciiCharStr)) // output: 12</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p170"> 
+   <p>Things get a little different once Unicode characters enter the mix, though.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p171"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.38 Using len on a Unicode string</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">unicodeCharStr := "<span class="CharOverride-8">地鼠</span>"
+fmt.Println(len(unicodeCharStr)) // output: 6</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p172"> 
+   <p>All of a sudden, the length doesn’t match up! What looks like two characters actually has a length three times that.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p173"> 
+   <p>This is one of the most common head-scratchers people have when first experimenting with strings in Go, and the answer involves a surprising truth: strings are not actually arrays of <em>characters</em> but arrays of the bytes that <em>represent</em> those characters in UTF-8.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p174"> 
+   <p>Without getting too far into the weeds on UTF-8 encoding in Go, the simple answer is that not all characters use the same number of bytes for representation. When you create a string in Go that contains characters beyond basic ASCII characters (that is, beyond the basic English letters and numbers), Go transparently encodes that string into UTF-8 and stuffs those bytes into the backing array for your string.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p175"> 
+   <p>You can get a sense of the size of different characters by using <code>fmt.Printf</code> with the special <code>%x</code> (hex) verb to visualize the bytes that make up your string.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p176"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.39 Print several single-character strings of different lengths</h5> 
+   <div class="code-area-container code-area-with-html"> 
+    <pre class="code-area">fmt.Printf("%x\n", "A") // output: 41
+fmt.Printf("%x\n", "À") // output: c380
+fmt.Printf("%x\n", "<span class="CharOverride-10">Ᾰ</span>") // output: e1beb8
+fmt.Printf("%x\n", "<img alt="" src="../Images/Emoji_27_color.png" width="18" height="18"/>") // output: f09f85b0</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p177"> 
+   <p>The output of these lines shows that characters can be anywhere from 1 to 4 bytes in total length, depending on the character, as illustrated in figure 3.10. As you can see, <code>"</code><code>A</code><code>"</code> is just one byte long, exactly as it would be in ASCII. </p> 
+  </div> 
+  <div class="browsable-container figure-container " id="p178">  
+   <img alt="" src="../Images/CH03_F10_Kennedy2.png" style="width: 100%; max-width: max-content;" width="501" height="184"/> 
+   <h5 class=" figure-container-h5">Figure 3.10 Visualizing character size in bytes</h5>
+  </div> 
+  <div class="readable-text" id="p179"> 
+   <p>This is no coincidence, because UTF-8 is backward-compatible with ASCII, which is why you can iterate over a basic ASCII string with a traditional <code>for</code> loop, and things work as you’d expect.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p180"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.40 Getting ASCII bytes as strings with a for loop</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">asciiCharStr := "easy, right?"
+for i := 0; i &lt; len(asciiCharStr); i++ {
+	fmt.Print(string(asciiCharStr[i]) + " ")
+}
+fmt.Println()
+// output: e a s y ,   r i g h t ?</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p181"> 
+   <p>But try that with a string containing Unicode, and you’re going to have a bad time.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p182"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.41 Attempting to get Unicode bytes as strings with a for loop</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">unicodeCharStr := "<span class="CharOverride-8">地鼠</span>"
+for i := 0; i &lt; len(unicodeCharStr); i++ {
+	fmt.Print(string(unicodeCharStr[i]) + " ")
+}
+fmt.Println()
+// output:  å  ° é ¼</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p183"> 
+   <p>To access the individual characters, another approach is needed.</p> 
+  </div> 
+  <div class="readable-text" id="p184"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.8.5</span> Iterating Unicode strings using a range loop</h3> 
+  </div> 
+  <div class="readable-text" id="p185"> 
+   <p>As a special case for strings, you can use a <code>range</code> loop to get a list of characters one at a time.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p186"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.42 range loop on a string</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">unicodeCharStr := "<span class="CharOverride-8">地鼠</span>"
+for i, r := range unicodeCharStr {
+	fmt.Printf("%d:%s ", i, string(r))
+}
+fmt.Println()
+//output: 0:<span class="CharOverride-8">地</span> 3:<span class="CharOverride-8">鼠</span></pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p187"> 
+   <p>This breaks the string up into its constituent characters, regardless of their size. You still get the index where each character starts, but instead of individual bytes, you get one character at a time as a <code>rune</code> value.</p> 
+  </div> 
+  <div class="readable-text" id="p188"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.8.6</span> The rune type</h3> 
+  </div> 
+  <div class="readable-text" id="p189"> 
+   <p>Earlier in the chapter, we mentioned that the <code>rune</code> type is an alias for <code>int32</code> for string characters. This gives you a type that is large enough to represent any single character you might find in a string and a way to compare those characters with each other.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p190"> 
+   <p>Runes also separate characters from their encoding because they represent the value of the Unicode character itself. Once you have a character’s rune, you can get more information about it using the <code>unicode</code> and <code>unicode/utf8</code> packages.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p191"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.43 Using the unicode and unicode/utf8 packages to inspect characters</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">interestingCharacters := "À<img alt="" class="_idGenObjectAttribute-8" src="../Images/Emoji_27_color.png" width="18" height="18"/>"
+for _, r := range interestingCharacters {
+	fmt.Printf("rune: %s byte length: %d\n", string(r), utf8.RuneLen(r))
+	if unicode.IsLetter(r) &amp;&amp; unicode.IsUpper(r) {
+		fmt.Println("rune is an uppercase letter")
+		fmt.Println("lowercase is:", string(unicode.ToLower(r)))
+	}
+	if unicode.IsSymbol(r) {
+		fmt.Println("rune is a symbolic character")
+	}
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p192"> 
+   <p>This can provide some interesting insights into the characters in a string.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p193"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.44 Output of Unicode character information</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">rune: À byte length: 2
+rune is an uppercase letter
+lowercase is: à
+rune: <img alt="" class="_idGenObjectAttribute-8" src="../Images/Emoji_27_color.png" width="18" height="18"/> byte length: 4
+rune is a symbolic character</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p194"> 
+   <p>Check out the documentation for these packages for more useful information.</p> 
+  </div> 
+  <div class="readable-text" id="p195"> 
+   <h3 class=" readable-text-h3"><span class="num-string">3.8.7</span> Converting a string to a slice of runes</h3> 
+  </div> 
+  <div class="readable-text" id="p196"> 
+   <p>The <code>rune</code> type also gives you another way to get at the characters of a string: convert the string directly into a slice of runes. This will give you similar results, except that now the index represents the character position in the printed string. A string is just a collection of runes, so Go can easily convert between them, as demonstrated in the following listing.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p197"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 3.45 Converting a string to a []rune</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">unicodeCharStr := "<span class="CharOverride-8">地鼠</span>"
+characters := []rune(unicodeCharStr)
+for i, r := range characters {
+	fmt.Printf("%d:%s ", i, string(r))
+}
+fmt.Println()
+//output: 0:<span class="CharOverride-8">地</span> 1:<span class="CharOverride-8">鼠</span></pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p198"> 
+   <h2 class=" readable-text-h2">Summary</h2> 
+  </div> 
+  <ul> 
+   <li class="readable-text" id="p199">Go provides a number of built-in primitive types for common computing tasks.</li> 
+   <li class="readable-text" id="p200">There are several different integer types, but <code>int</code> is the most flexible and the one you should use for most tasks.</li> 
+   <li class="readable-text" id="p201"><code>bool</code> types are useful for constructing conditional logic and can make complex checks easier when they’re used as return values.</li> 
+   <li class="readable-text" id="p202">Struct types group related values together and are used to define new types.</li> 
+   <li class="readable-text" id="p203">Go supports pointer types, allowing you to pass references to data without copying it.</li> 
+   <li class="readable-text" id="p204">Strings are read-only arrays of bytes that can contain UTF-8 encoded characters from any language.</li> 
+  </ul>
+ </div></div></body></html>

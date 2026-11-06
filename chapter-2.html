@@ -1,0 +1,1303 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html><html xml:lang="en" lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Go in Action, Second Edition</title><link rel="stylesheet" type="text/css" href="../Styles/stylesheet.css"/></head><body><div id="book-content"><div id="sbo-rt-content"><div class="readable-text" id="p1"> 
+   <h1 class=" readable-text-h1"><span class="chapter-title-numbering"><span class="num-string">2</span> </span><span class="chapter-title-text">Diving into Go</span></h1> 
+  </div> 
+  <div class="introduction-summary"> 
+   <h3 class="introduction-header"><span class="CharOverride-2">This chapter covers</span><span class="CharOverride-2"></span></h3> 
+   <ul> 
+    <li class="readable-text" id="p2"><span class="CharOverride-3">Building your first Go program</span><span class="CharOverride-3"></span></li> 
+    <li class="readable-text" id="p3"><span class="CharOverride-3">Go source structure</span><span class="CharOverride-3"></span></li> 
+    <li class="readable-text" id="p4"><span class="CharOverride-3">Go language fundamentals</span><span class="CharOverride-3"></span></li> 
+   </ul> 
+  </div> 
+  <div class="readable-text" id="p5"> 
+   <p>You paid money for a book called <em>Go in Action</em>, so let’s see some code already! Rather than just throw a bunch of reference material at you (there are plenty of other great books for that!), we thought we might try something a little more hands-on. This chapter will walk you through the creation of a single piece of software that mirrors a real-world utility, touching on various language features and fundamentals along the way.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p6"> 
+   <p>Go is more than just a language and a compiler; it’s an entire ecosystem of tools designed to help you format your code, manage dependencies, test code, and research documentation. Rather than gloss over these tools here, we believe you should get your hands dirty with them as soon as possible so that you can build a well-rounded foundation as a Go programmer.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p7"> 
+   <p>Let’s get to it!</p> 
+  </div> 
+  <div class="readable-text" id="p8"> 
+   <h2 class=" readable-text-h2"><span class="num-string">2.1</span> Goal: A program to count words</h2> 
+  </div> 
+  <div class="readable-text" id="p9"> 
+   <p>If there’s one thing computers are good at, it’s counting things really, really quickly, which makes these tasks ripe for automation with the sort of elegant code programmers thirst for. A very common thing for programmers to count is lines and words in text files, mainly because this is the quickest way to show off how many lines of code (or “loc” if you’re cool) you’ve written, so that other programmers will be jealous of how productive you are. </p> 
+  </div> 
+  <div class="readable-text intended-text" id="p10"> 
+   <p>This is so common, in fact, that there is already a ubiquitous command-line tool called <code>wc</code> (short for “word count”) that does this and comes packaged with pretty much every Linux and macOS system. You could just use that, of course, but if we did, this chapter would be very short, you would leave very poor book reviews, and Manning would be very angry with us. So instead, let’s say you’ve decided that <code>wc</code> is too old and crusty for your refined tastes and you’re going to rewrite it in Go!</p> 
+  </div> 
+  <div class="readable-text" id="p11"> 
+   <h2 class=" readable-text-h2"><span class="num-string">2.2</span> What you need first</h2> 
+  </div> 
+  <div class="readable-text" id="p12"> 
+   <p>We encourage you to follow along with the code in this book to get the most out of it and get used to writing Go in an actual development environment. You could do this with just a Go installation and your operating system’s built-in terminal, but you’ll have a better experience with an IDE or an alternative terminal emulator. We’ll discuss these in detail below, but you can also visit the book’s website at <a href="https://github.com/holmes89/go-in-action-code/blob/main/IDEs.md"><span class="Hyperlink">https://github.com/holmes89/go-in-action-code/blob/main/IDEs.md</span></a>, where we keep an up-to-date list of recommended software and quick-start instructions for getting set up! </p> 
+  </div> 
+  <div class="readable-text" id="p13"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.2.1</span> A code editor</h3> 
+  </div> 
+  <div class="readable-text" id="p14"> 
+   <p>You can use any editor you like to write Go, so use whatever is comfortable for you. If you’re unsure where to start, the Go Wiki provides several popular suggestions. Check out our book’s website, mentioned above, or head over to <a href="https://go.dev/doc/editors"><span class="Hyperlink">https:</span><span class="Hyperlink">/</span><span class="Hyperlink">/go.dev/doc/editors</span></a> and follow the link to commonly used editor plugins and IDEs listed on the Wiki.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p15"> 
+   <p>The landscape of code editors is constantly shifting, so this book does not focus on any particular coding environment. Different editors have different levels of Go support, some of which might require extensions or plugins for features such as autocompletion and documentation. Check the documentation for your particular editor if you don’t find it at the preceding link, and consider installing any support packages you need. Some editors might even install Go for you! If that’s the case, just make sure you still have access to the Go tools from the command line, since this book will be using them pretty regularly. </p> 
+  </div> 
+  <div class="readable-text intended-text" id="p16"> 
+   <p>If in doubt, you’re probably safe to follow the steps in the next section to install Go on your operating system of choice. This will guarantee that you can access the tools you need.</p> 
+  </div> 
+  <div class="readable-text" id="p17"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.2.2</span> Git</h3> 
+  </div> 
+  <div class="readable-text" id="p18"> 
+   <p>Git (<a href="https://git-scm.com/"><span class="Hyperlink">https:</span><span class="Hyperlink">/</span><span class="Hyperlink">/git-scm.com/</span></a>) is a free and open source revision control system, which is a piece of software used for managing software projects. It is one of the most popular tools for this purpose, and it is integrated into the Go toolchain as the default option for fetching dependencies from popular open source software repositories, such as GitHub. If it is not installed by your editor integration of choice, download it from <a href="https://git-scm.com/downloads"><span class="Hyperlink">https:</span><span class="Hyperlink">/</span><span class="Hyperlink">/git-scm.com/downloads</span></a> for your system and install it so that you can easily fetch third-party libraries once you start to use dependencies beyond the Go standard library. </p> 
+  </div> 
+  <div class="readable-text" id="p19"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.2.3</span> The Go toolchain</h3> 
+  </div> 
+  <div class="readable-text" id="p20"> 
+   <p>You’ll also need Go itself. Go comes packaged for most major operating systems, so the best way to kick this process off is to visit <a href="https://go.dev/doc/install"><span class="Hyperlink">https:</span><span class="Hyperlink">/</span><span class="Hyperlink">/go.dev/doc/install</span></a> and follow the instructions there. This will install the latest Go distribution on your system, which includes the extensive standard library as well as the compiler and various command-line tools that you’ll be using to build and test your software.</p> 
+  </div> 
+  <div class="readable-text" id="p21"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.2.4</span> Terminal access</h3> 
+  </div> 
+  <div class="readable-text" id="p22"> 
+   <p>You will also want some interface to type these commands into, usually in the form of a <em>terminal emulator</em> application, sometimes also called a “command prompt” or simply a “terminal.” If you are using an IDE, you may find that it has one built in, but every modern OS also has its own version of a built-in terminal. These can be a little bare-bones, though, so you may want to try out something else. Check out <a href="https://github.com/holmes89/go-in-action-code/blob/main/TERMINALS.md"><span class="Hyperlink">https://github.com/holmes89/go-in-action-code/blob/main/TERMINALS.md</span></a> for some possibilities!</p> 
+  </div> 
+  <div class="readable-text" id="p23"> 
+   <h2 class=" readable-text-h2"><span class="num-string">2.3</span> Creating your project root</h2> 
+  </div> 
+  <div class="readable-text" id="p24"> 
+   <p>Setting up a new Go project involves two steps: creating a directory to hold your code, and initializing that directory as a Go module. Let’s walk through each in turn.</p> 
+  </div> 
+  <div class="readable-text" id="p25"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.3.1</span> Creating a directory</h3> 
+  </div> 
+  <div class="readable-text" id="p26"> 
+   <p>The first step in every new Go project is creating a directory for your code to live in. Whether this code will be a reusable library or a runnable program, this directory, called the <em>project root</em>, is the home base for all of your code so that Go knows where to find everything and how to build it. Each of the projects in this book will have its own root directory to keep it well contained. </p> 
+  </div> 
+  <div class="readable-text intended-text" id="p27"> 
+   <p>For this project, you’ll create a directory called <code>wordcount</code>. It might also help to create a single directory to hold all of the project root code for this book. Throughout this book, we’ll locate projects in the <code>gobook</code> directory, but feel free to omit the containing directory if you like.</p> 
+  </div> 
+  <div class="readable-text" id="p28"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.3.2</span> Initializing the project module</h3> 
+  </div> 
+  <div class="readable-text" id="p29"> 
+   <p>Go uses a system called <em>Go modules</em> to give names to individual software projects and manage their dependencies so that anyone who has access to the source code can be sure they are working on the same program with the same dependencies and versions as everyone else. Modules will be covered in greater detail in chapter 11, but for now, issue the following command in the <code>wordcount</code> directory to get your project ready for the code.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p30"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.1 Initializing the wordcount module</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ go mod init gobook/wordcount 
+go: creating new go.mod: module gobook/wordcount</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p31"> 
+   <p>You can use the module name <code>gobook/wordcount</code> whether or not you put your new project in a <code>gobook</code> directory. For now, the only relevant portion of the name is the final path segment, which <em>must</em> match the directory name you run the command in. You could, of course, simply have named it <code>wordcount</code>, and this would work fine, but for convention’s sake, you might want to get used to prefixing the module name with something, since eventually this prefix will contain repository information.</p> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p32"> 
+    <h5 class=" callout-container-h5 readable-text-h5">The go command</h5> 
+   </div> 
+   <div class="readable-text" id="p33"> 
+    <p>This is the first of many appearances of your new best friend and constant companion throughout your journey as a Go programmer: the <code>go</code> command. You will be using it <em>a lot</em>.</p> 
+   </div> 
+   <div class="readable-text" id="p34"> 
+    <p>This little Swiss Army Knife does everything from building your code to testing it, installing its dependencies, and everything in between. It is broken down into a series of subcommands, such as <code>mod</code> (which handles dependencies). We’ll touch on it only briefly in this chapter, but rest assured, there will be plenty to learn about this tool and more in chapter 3.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p35"> 
+   <p>After this command is run, you will be left with a directory containing one file: <code>go.mod</code>. This directory is now the <em>main module</em> for your project, and the Go toolchain will reference this <code>go.mod</code> when building any code in this directory or in any directories beneath it. If you look inside this file, you will see something very similar to the following.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p36"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.2 Your new go.mod file</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">module gobook/wordcount
+
+go 1.25</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p37"> 
+   <p>There’s not a lot to see here yet because this is a brand-new project with no external dependencies (or code). The first line is called the <em>module directive</em>, and it indicates that the name of this module is <code>gobook/wordcount</code>. The last line is called the <em>go directive</em>, and it says that this software was developed using Go version 1.25.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p38"> 
+   <p>Now you have a shiny new module just brimming with possibilities for the future. Time to write some actual code!</p> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p39"> 
+    <h5 class=" callout-container-h5 readable-text-h5">GOROOT in days of yore</h5> 
+   </div> 
+   <div class="readable-text" id="p40"> 
+    <p>History lesson: In the early days of Go, you needed to have a <code>GOPATH</code> environment variable that pointed to a directory where all of your source and dependencies lived. This directory needed a <code>src</code> subdirectory for all of your source, a <code>bin</code> subdirectory for tools and such that you built, and a <code>pkg</code> subdirectory for cached library objects. This was fine, but all of your code ended up in one place, which was a little weird. Also, it didn’t handle versioning very well, so we had to make sites like <code>gopkg.in</code> to keep versions separate; otherwise, you needed a bunch of separate <code>GOPATH</code>s, each with their own copies of dependencies. You also had to check dependencies in sometimes, to make sure they didn’t get deleted from public repos or updated on you. So, yeah, it was a whole thing, and there were a bunch of third-party tools like <code>gb</code> and <code>glide</code> and <code>dep</code> that stepped up to fill in the gaps. </p> 
+   </div> 
+   <div class="readable-text" id="p41"> 
+    <p>Eventually, though, we got Go Modules which does versioning and lets you build a project wherever, as long as you do a <code>go</code> <code>mod</code> <code>init</code> first. More importantly, we also got the Go package and checksum databases, which act as public mirrors for most Go code checked in to the major public repositories, making it very unlikely that your dependencies will just disappear on you.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p42"> 
+   <h2 class=" readable-text-h2"><span class="num-string">2.4</span> The first iteration: Counting spaces</h2> 
+  </div> 
+  <div class="readable-text" id="p43"> 
+   <p>Spaces are the natural division between words, so as a first pass, you’ll write a simple counter for spaces in a string. This counter will serve as the test case for the rest of the chapter, gaining improvements along the way.</p> 
+  </div> 
+  <div class="readable-text" id="p44"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.1</span> Creating main.go</h3> 
+  </div> 
+  <div class="readable-text" id="p45"> 
+   <p>The first order of business is creating a file that contains some Go code to run. Open a file called <code>main.go</code> and put the following code in it.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p46"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.3 Your first main.go file</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">package main
+
+import "fmt"
+
+func main() {
+	// Use hard-coded text to start.
+	text := "let's count some words!"
+
+	var numSpaces int
+
+	// Look at the text one byte at a time.
+	for i := 0; i &lt; len(text); i++ {
+		if text[i] == ' ' {
+			numSpaces++
+		}
+	}
+
+	fmt.Println("Found", numSpaces+1, "words")
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p47"> 
+   <p>Just like that, your first Go program is on the books! This code represents a complete Go program that counts the number of spaces in the <code>text</code> variable by looking at each character and checking whether it’s a space. This implementation has a couple of rough edges, but you’ll fix those soon enough. First, try it out!</p> 
+  </div> 
+  <div class="readable-text" id="p48"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.2</span> Building the program with go build</h3> 
+  </div> 
+  <div class="readable-text" id="p49"> 
+   <p>To run your program for the first time, you can use the <code>go</code> <code>build</code> command from the directory where <code>main.go</code> resides. This command compiles all the .go files in that directory and, by default, creates an executable file with the same name as the directory itself.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p50"> 
+   <p>If you’re following along, this should produce a binary file called <code>wordcount</code> (or <code>wordcount.exe</code> on Windows) that is ready to run. You can then call it as a command, as follows.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p51"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.4 Running the wordcount executable from the command line</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ ./wordcount
+Found 4 words</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p52"> 
+   <p>Congratulations! You are now a Go programmer! Welcome, fellow Gopher.</p> 
+  </div> 
+  <div class="readable-text" id="p53"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.3</span> Running the program with go run</h3> 
+  </div> 
+  <div class="readable-text" id="p54"> 
+   <p>Alternatively, you can type <code>go run</code> from inside the directory and run it without building first.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p55"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.5 Running the program</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ go run main.go
+Found 4 words</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p56"> 
+   <p><code>go</code> <code>run</code> is another handy command provided by the <code>go</code> tool for quick tests like this (see chapter 3 for more), and it will be helpful as you add to the program later in the chapter.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p57"> 
+   <p>Before you go running off to monetize word-counting-as-a-service (WCAAS is a thing, right?), let’s take a minute to check your formatting.</p> 
+  </div> 
+  <div class="readable-text" id="p58"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.4</span> Formatting your code with gofmt</h3> 
+  </div> 
+  <div class="readable-text" id="p59"> 
+   <p>If you’re using a code editor or IDE, you may have noticed some small formatting changes to your code when you saved it. This is <code>gofmt</code> at work.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p60"> 
+   <p><code>gofmt</code> is another tool that comes bundled with the Go distribution, and its job is simple: make all Go code look the same everywhere.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p61"> 
+   <p>Once upon a time, this might have seemed like a strange thing to add to a programming toolchain, but it is quickly becoming the norm, especially as public, open source communities have become more popular. There was a time not so long ago when you’d see lengthy newsgroup diatribes on syntactic style that could span weeks. It was all very fraught and dramatic, and a lot of good development time was burned debating the merits of variable grouping and cuddled else statements. Ain’t no one got time for that.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p62"> 
+   <p>With standard formatting, it doesn’t matter what your preference might be. What style of bracketing should you use? Doesn’t matter; it’s <code>gofmt</code>’s way. This is actually rather freeing, since now you just write your code and don’t worry about it. Moreover, standard formatting lowers the cognitive load of reading unfamiliar code, since at the very least, its shape will be the same. It’s great.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p63"> 
+   <p>If you’re unsure about whether your editor is calling <code>gofmt</code> for you, just try the following command on your shiny new <code>main.go</code>.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p64"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.6 Testing your formatting with gofmt</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ gofmt -d main.go</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p65"> 
+   <p>The <code>-d</code> (for “diff”) flag tells <code>gofmt</code> that you want to see any differences between your code and the standard format. If you’re lucky, it will output nothing, meaning your editor has probably already taken care of that for you. On the other hand, you might see something like this.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p66"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.7 Output of gofmt -d when your formatting isn’t standard</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">--- main.go.orig
++++ main.go
+@@ -3,13 +3,13 @@
+ import "fmt"
+
+ func main() {
+-  // Use hard-coded text to start.
+-  text := "let's count some words!"
++       // Use hard-coded text to start.
++       text := "let's count some words!"
+
+        var numSpaces int
+
+        // Look at the text one byte at a time.
+-       for i := 0; i &lt; len(text); i++{
++       for i := 0; i &lt; len(text); i++ {
+                if text[i] == ' ' {
+                        numSpaces++
+                }</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p67"> 
+   <p>You can always use <code>gofmt</code> <code>-w</code> to modify your files in place, but who has time for that? The point of <code>gofmt</code> is not to have to care about it, and you shouldn’t.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p68"> 
+   <p>Now that that’s out of the way, let’s break this down and explore how the different pieces fit together.</p> 
+  </div> 
+  <div class="readable-text" id="p69"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.5</span> Package declarations</h3> 
+  </div> 
+  <div class="readable-text" id="p70"> 
+   <p>Go programs are divided into “packages,” which are the basic unit of code organization in Go. Packages define boundaries between the different concerns of your code and determine which functions, types, and values are visible in other parts of the program. Each module can contain one or more packages, each of which can be imported separately if the programmer wishes. </p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p71"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.8 Declaring package main</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">package main</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p72"> 
+   <p>The code line in listing 2.8 defines this file as belonging to the <code>main</code> package, which is special. It indicates to the Go compiler that you intend to produce an executable program that can be run all on its own. When Go sees a file or files in a directory that define the <code>main</code> package, it searches through them all, looking for a function called <code>main</code>, which is also special because it represents the starting point for the program.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p73"> 
+   <p>If your program has both a <code>main</code> package and a <code>main</code> function, the compiler will output a single executable that can then be run from the command line.</p> 
+  </div> 
+  <div class="readable-text" id="p74"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.6</span> Import declarations</h3> 
+  </div> 
+  <div class="readable-text" id="p75"> 
+   <p>Various pieces of code will live outside of the <code>main</code> package for better code organization. In order to use these packages, we will need to use what is known as an <em>import declaration</em>, which indicates that this package (<code>main</code>) is importing one or more external packages as dependencies. This helps the Go compiler know what additional software it needs to build to support your program.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p76"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.9 Importing the fmt package</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">import "fmt"</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p77"> 
+   <p>In this case, there’s only one dependency, but there can be any number of import declarations. They can appear on a single line (as in this example) or in blocks of multiple imports, which you’ll see shortly. This part of the code must come directly after the package declaration so that the build toolchain can gather dependency information and build those dependencies, if needed, before moving on to your code.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p78"> 
+   <p>In this case, the single dependency is the <code>fmt</code> package, which handles formatted output and provides some helpful functions for printing output to the screen.</p> 
+  </div> 
+  <div class="readable-text" id="p79"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.7</span> Blocks and scope</h3> 
+  </div> 
+  <div class="readable-text" id="p80"> 
+   <p>The rest of the program (listing 2.7) is a single function, <code>main</code>, which begins on line #6 and ends with the closing brace on line #19. <code>main</code> takes no arguments and returns no values. It is the <em>entry point</em> into your program, meaning that when the program is run, code starts executing from this point. A <code>return</code> from <code>main</code> terminates the program.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p81"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.10 The main function</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func main() {</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p82"> 
+   <p>As you might have noticed, Go code uses the C-style approach of defining <em>blocks</em> of code, such as functions and loops, with curly braces <code>{}</code>, which mark the beginning and end of the block. Blocks determine the <em>scope</em>, or visibility, of identifiers such as function names and variables. Names declared inside a given block are visible only inside that block after they are declared, and they are visible in any inner block declared after them.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p83"> 
+   <p>In addition to the normal brace-delimited blocks around functions and loops, there is also a single scope shared by each package, called the “package block,” which includes all of the functions defined in that package as well as identifiers declared outside of functions, such as variables. Anything declared at this level is visible throughout the package. Above this is the “universe block,” which contains built-in functions such as <code>append</code>, as well as all of the built-in Go types and constants.</p> 
+  </div> 
+  <div class="readable-text" id="p84"> 
+   <p>In figure 2.1, each of the identifiers has been marked, and you can see four different levels of scope at work. The eye icons indicate that each scope has visibility into the identifiers of any scopes that surround it. This means that at the innermost level, the code in the <code>for</code> loop has access to any variables declared above it in the <code>main</code> function, as well as to all the items in the package scope. It cannot see <code>newAmount</code>, because this was declared later, nor does it have access to the identifiers in the <code>addAmount</code> function, because they do not share a scope.</p> 
+  </div> 
+  <div class="browsable-container figure-container " id="p85">  
+   <img alt="" src="../Images/CH02_F01_Kennedy2.png" style="width: 100%; max-width: max-content;" width="895" height="461"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 2.1 Scopes and visibility</span></h5>
+  </div> 
+  <div class="readable-text" id="p86"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.8</span> Variable declaration</h3> 
+  </div> 
+  <div class="readable-text" id="p87"> 
+   <p>As you learned in chapter 1, all variables in Go have a <em>type</em>, which defines what kind of values they can hold. Types can be assigned to variables explicitly by using the <code>var</code> keyword, or you can use the short declaration operator (<code>:=</code>) to do it automatically.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p88"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.11 Explicitly declaring the numSpaces counter variable with var</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">var numSpaces int</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p89"> 
+   <p>In the preceding listing, <code>numSpaces</code> is declared explicitly by using the <code>var</code> keyword, which defines the new variable and assigns it Go’s integer type, <code>int</code>. Because it is a numeric value, it is automatically assigned a default value of 0, making it ready to use immediately. This is known as the <em>zero value</em> for that type. Declarations using <code>var</code> can also specify an initial value in the form <code>var</code> <code>name</code> <code>T</code> <code>=</code> <code>V</code>, where <code>T</code> is the type and <code>V</code> is the value, but the short variable form is usually more convenient.</p> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p90"> 
+   <p><span class="print-book-callout-head">Note</span> The zero values for Boolean values, numeric values, and strings are false, 0, and the empty string (“”), respectively. All other types will get a value of nil. This is covered in greater detail in chapter 5.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p91"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.12 Declaring and assigning text in a single step</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">text := "let's count some words!"</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p92"> 
+   <p>The preceding code line declares <code>text</code> with the short variable operator <code>:=</code>, which acts exactly like an assignment except that it also declares a new variable at the same time. The <code>text</code> variable automatically receives the type <code>string</code> through a mechanism called <em>type inference</em>, which allows Go to infer the type of the new variable from the value you are attempting to assign to it. This is a very useful feature because it saves you from needing to perform separate declaration and assignment steps every time. Instead, you can create variables the first time you use them, and the type is taken care of for you.</p> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p93"> 
+    <h5 class=" callout-container-h5 readable-text-h5">Short declaration considerations</h5> 
+   </div> 
+   <div class="readable-text" id="p94"> 
+    <p>Short declarations are very useful, but they can have surprising behavior when changing scope. Consider the following example.</p> 
+   </div> 
+   <div class="browsable-container listing-container" id="p95"> 
+    <div class="code-area-container"> 
+     <pre class="code-area">func main() {
+    const defaultServer = "localhost"
+	// getConfigValue returns false if the named value does not exist
+	serverAddress, found := getConfigValue("server")
+	if !found {
+		serverAddress := defaultServer
+		fmt.Println("default server set:", serverAddress)
+	}
+	fmt.Println("connecting to server:", serverAddress)
+}
+// Output:
+// default server set: localhost
+// connecting to server:</pre>  
+    </div> 
+   </div> 
+   <div class="readable-text" id="p96"> 
+    <p>Inside the <code>if</code> block, everything looks great, but once you exit, the value is empty again. What gives? This happens because the second assignment to <code>serverAddress</code> is not actually an assignment at all. Because it occurs within the <code>if</code> block, it happens inside a new scope and actually creates a <em>new</em> variable with the same name that exists only inside the <code>if</code> block, meaning the value of the outer <code>serverAddress</code> never changes. This is called <em>shadowing</em>, and it can be easy to miss. Fortunately, many editors will warn you about shadowing so that you can fix it.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p97"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.9</span> Comments<span class="CharOverride-6"></span></h3> 
+  </div> 
+  <div class="readable-text" id="p98"> 
+   <p>Comments are one of the most important parts of any software, and Go uses C-style syntax: line comments start with <code>//</code>, and block comments are surrounded by <code>/*</code> and <code>*/</code>.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p99"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.13 Go comment styles</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// Use hard-coded text to start.
+text := "let's count some words!"
+
+// A single line comment lasts until the end of the current line.
+
+/*
+	A multi-line comment
+	can span multiple lines for longer
+	documentation.
+*/</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p100"> 
+   <p><span class="print-book-callout-head">Tip</span> Go documentation is written in comments, so it helps to get in the habit of using complete sentences with proper punctuation.</p> 
+  </div> 
+  <div class="readable-text" id="p101"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.10</span> Basic for loops</h3> 
+  </div> 
+  <div class="readable-text" id="p102"> 
+   <p>The next step is to look at each character in the string to see whether it’s a space. For this, you need a loop. Although other languages provide multiple looping constructs, such as <code>while</code> and <code>do..while</code>, Go unifies them in the <code>for</code> statement.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p103"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.14 Looping over string characters with a for loop</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">for i := 0; i &lt; len(text); i++ {
+	if text[i] == ' ' {
+		numSpaces++
+	}
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p104"> 
+   <p>The <code>for</code> loop in Go comes in three flavors, the first of which is the familiar three-part <code>for</code> loop. This will be familiar if you have worked with C-like languages such as ­JavaScript, C++, and Java.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p105"> 
+   <p>It consists of three sections, followed by the block of code to execute, as illustrated in figure 2.2. </p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p106">  
+   <img alt="" src="../Images/CH02_F02_Kennedy2.png" style="width: 100%; max-width: max-content;" width="377" height="90"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 2.2 Anatomy of a for statement</span></h5>
+  </div> 
+  <div class="readable-text intended-text" id="p107"> 
+   <p>The <em>init statement</em> runs once at the start of the loop and usually initializes an important variable. It is optional.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p108"> 
+   <p>The <em>condition</em> is a Boolean expression evaluated before each loop iteration to see whether the loop should run. Unlike C and Java, Go requires a condition.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p109"> 
+   <p>The <em>post statement</em> runs at the end of each loop iteration, including the last one. Usually, it increments some kind of counter. It is optional.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p110"> 
+   <p>In this code, the init statement creates a variable <code>i</code> to track the character position in the string. This variable is then compared to a literal space character, <code>'</code><code> </code><code>'</code>. If it matches, <code>numSpaces++</code> increments the counter, and the loop continues to the end.</p> 
+  </div> 
+  <div class="readable-text" id="p111"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.4.11</span> Calling functions in other packages</h3> 
+  </div> 
+  <div class="readable-text" id="p112"> 
+   <p>Finally, after all that counting and looping, it’s time to return your results! This is a great job for the <code>fmt</code> package, which provides methods for printing and formatting messages.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p113"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.15 Using<code> fmt.Println</code> to output the results</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">fmt.Println("Found", numSpaces+1, "words")</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p114"> 
+   <p>Go uses the familiar <code>&lt;package&gt;.&lt;function&gt;</code> syntax to call functions in other packages, so <code>fmt.Println</code> calls the <code>Println</code> function from the <code>fmt</code> package, which prints out its arguments in order, with spaces between them, to give you a nice tidy message.</p> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p115"> 
+   <p><span class="print-book-callout-head">Note</span> In Go, when an identifier such as a function name begins with an uppercase letter, it is <em>exported</em>, which means that it can be accessed by anyone who imports the package. This differs from other languages that require you to advertise the names you want to export and import using special keywords or lists. In Go, that first uppercase character is all you need. You’ll see this throughout the rest of the chapter when calling functions from the standard library.</p> 
+  </div> 
+  <div class="readable-text" id="p116"> 
+   <h2 class=" readable-text-h2"><span class="num-string">2.5</span> A better way to split the string</h2> 
+  </div> 
+  <div class="readable-text" id="p117"> 
+   <p>Counting spaces isn’t the best algorithm for word counts, though. Sometimes people still use two spaces between words, and there’s no guarantee that you won’t have extra spaces elsewhere. Try adding spaces to the beginning and end of the <code>text</code> and see what happens. </p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p118"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.16 Adding spaces to the text variable</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">text := " let's count some words! "</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p119"> 
+   <p>Suddenly, the output is wrong.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p120"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.17 Incorrect output</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">Found 6 words</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p121"> 
+   <p>That’s two words off! Not good! Instead of counting spaces, it would be better to split the string into different words. Turns out there’s a function that can do exactly this: <code>strings.Fields</code>.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p122"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.18 Altering main.go to use strings.Fields and len</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	text := "let's count some words!"
+	words := strings.Fields(text)
+	fmt.Println("Found", len(words), "words")
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p123"> 
+   <p>That’s much simpler! Three lines of code do all of that counting and looping.</p> 
+  </div> 
+  <div class="readable-text" id="p124"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.5.1</span> Introducing package strings</h3> 
+  </div> 
+  <div class="readable-text" id="p125"> 
+   <p>The <code>strings</code> package is another standard library package that, as you might imagine, deals with processing and manipulating strings. Unlike the <code>fmt</code> package, which deals primarily with printing strings and placing variables in them, <code>strings</code> provides functions for doing all sorts of nifty stuff, such as converting strings to uppercase or lowercase, building them piece by piece, and splitting them up.</p> 
+  </div> 
+  <div class="readable-text" id="p126"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.5.2</span> Using go doc to view package documentation</h3> 
+  </div> 
+  <div class="readable-text" id="p127"> 
+   <p>You can view the documentation for this package using another handy command, <code>go</code> <code>doc</code>, which parses the source for documentation comments and prints them for you to read. By default, this command prints all package functions and types, but you can use the <code>-all</code> flag to make it print more detailed information, such as descriptions, methods, or basic usage.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p128"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.19 Using go doc to view the documentation for the strings package</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ go doc -all strings</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p129"> 
+   <p>The preceding command will print a listing of all the relevant parts of the <code>strings</code> package, including the documentation for <code>strings.Fields.</code></p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p130"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.20 Documentation for strings.Fields</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func Fields(s string) []string
+   Fields splits the string s around each instance of one or more
+   consecutive white space characters, as defined by unicode.IsSpace,
+   returning a slice of substrings of s or an empty slice if s contains only
+   white space.</pre>  
+   </div> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p131"> 
+    <h5 class=" callout-container-h5 readable-text-h5">Viewing documentation online</h5> 
+   </div> 
+   <div class="readable-text" id="p132"> 
+    <p><code>go doc</code> is a great tool for viewing code documentation, but you can also view documentation online at the go.dev website. Maintained by the Go Project, this site lets you view documentation and find packages from across the Go ecosystem. Check out <a href="https://pkg.go.dev/strings"><span class="Hyperlink">https://pkg.go.dev/strings</span></a> to see the documentation online or to view the documentation for any of the packages you see in this book.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p133"> 
+   <p>It is helpful to use standard library methods when you can, since many common use cases are already supported, which can save you time. In the case of the <code>strings</code> package, you no longer have to worry about extra spaces lurking around, since <code>strings.Fields</code> will simply ignore them for you.</p> 
+  </div> 
+  <div class="readable-text" id="p134"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.5.3</span> Multiple imports in an import directive</h3> 
+  </div> 
+  <div class="readable-text" id="p135"> 
+   <p>To use <code>strings.Fields</code>, you need to import the <code>strings</code> package by adding it to the import directive. You can simply add another line (<code>import</code> <code>"</code><code>strings</code><code>"</code>), or you can import multiple packages in the same directive by using parentheses.</p> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p136"> 
+   <p><span class="print-book-callout-head">Note</span> Many code editors will take care of this for you and arrange your imports in a consistent way. If you see your imports changing slightly when you save, this is what’s going on.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p137"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.21 Multiple import directive for both fmt and strings</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">import (
+	"fmt"
+	"strings"
+)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p138"> 
+   <p>This is the way most Go code you run into will handle imports, though some authors will split them up. Usually, you will see imports grouped with the standard library imports first, followed by a blank line and then other dependencies.</p> 
+  </div> 
+  <div class="readable-text" id="p139"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.5.4</span> Slices and len</h3> 
+  </div> 
+  <div class="readable-text" id="p140"> 
+   <p>Once the <code>strings</code> package is imported, you can call <code>Fields</code> using dot-notation.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p141"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.22 Calling strings.Fields and getting the list of words</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">words := strings.Fields(text)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p142"> 
+   <p>Looking at the documentation, you can see that <code>strings.Fields</code> takes a single string as an argument and returns a <code>[]string</code>, which is a <em>slice</em> of string values. We’ll explore slices in more detail in the next chapter, but for now you can think of them as lists or arrays that can shrink and grow as you need them. Like arrays, they are <em>indexed</em> by number, and you can use the familiar bracket syntax to access their individual elements (see figure 2.3).</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p143">  
+   <img alt="" src="../Images/CH02_F03_Kennedy2.png" style="width: 100%; max-width: max-content;" width="384" height="194"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 2.3 The slice of words</span></h5>
+  </div> 
+  <div class="readable-text" id="p144"> 
+   <p>The built-in <code>len</code> function is provided so that you can get the length of things like strings, slices, and maps, and print it directly. </p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p145"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.23 Printing the number of words using len</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">fmt.Println("Found", len(words), "words")</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p146"> 
+   <p><span class="print-book-callout-head">Important</span> <code>len</code> will always return the number of elements in a collection, but indices always start at 0, so remember to stop at <code>len(yourVariable)</code> <code>-</code> <code>1</code> if you’re using a <code>for</code> loop.</p> 
+  </div> 
+  <div class="readable-text" id="p147"> 
+   <h2 class=" readable-text-h2"><span class="num-string">2.6</span> Reading from a file</h2> 
+  </div> 
+  <div class="readable-text" id="p148"> 
+   <p>Now that you have a handy method for counting words, it’s time to think bigger. You’re never going to grab market share from <code>wc</code> in the word-counting space if you have to edit your source code every time you need to check a new string!</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p149"> 
+   <p>For that, you need to be able to load from a file, so it’s time to check out the <code>os</code> package.</p> 
+  </div> 
+  <div class="readable-text" id="p150"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.6.1</span> Using the os package to interact with the filesystem</h3> 
+  </div> 
+  <div class="readable-text" id="p151"> 
+   <p>The <code>os</code> package provides cross-platform access to things like environment variables, arguments, and the filesystem, which includes creating, removing, and opening files on disk.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p152"> 
+   <p>The quickest way to get the contents of a file is to read it into memory. If you look through the <code>os</code> package documentation, you’ll find a function called <code>os.ReadFile</code> that will do just that.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p153"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.24 Altering main.go to read the contents of a file using os.ReadFile</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"strings"
+)
+
+func main() {
+	filename := "words.txt"
+
+	fileContents, err := os.ReadFile(filename)
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
+
+	words := strings.Fields(string(fileContents))
+
+	fmt.Printf("found %d words", len(words))
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p154"> 
+   <p>Let’s break it down.</p> 
+  </div> 
+  <div class="readable-text" id="p155"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.6.2</span> Multiple return values</h3> 
+  </div> 
+  <div class="readable-text" id="p156"> 
+   <p>Many functions in Go return more than one value, which lets a function hand back both a result and additional information, like an error.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p157"> 
+   <div class="code-area-container"> 
+    <pre class="code-area">fileContents, err := os.ReadFile(filename)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p158"> 
+   <p><code>os.ReadFile</code> is a bit different from the functions you’ve seen so far, most notably because it returns two values. If you look at the documentation, you can see what these values are.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p159"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.25 Documentation for os.ReadFile</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func ReadFile(name string) ([]byte, error)
+    ReadFile reads the named file and returns the contents.</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p160"> 
+   <p>Looking at the function definition, you can see that it returns a slice of bytes representing the contents of the file and a value of type <code>error</code>, indicating whether there were any problems opening the file.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p161"> 
+   <p>Functions in Go can return any number of values, and a common pattern is to return the important values from a function first, followed by an <code>error</code> value at the end.</p> 
+  </div> 
+  <div class="readable-text" id="p162"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.6.3</span> Basic error handling and the log package</h3> 
+  </div> 
+  <div class="readable-text" id="p163"> 
+   <p>All error handling in Go eventually comes down to just two steps:</p> 
+  </div> 
+  <ol> 
+   <li class="readable-text" id="p164">Check if an error occurred.</li> 
+   <li class="readable-text" id="p165">If so, handle it as soon as possible.</li> 
+  </ol> 
+  <div class="readable-text" id="p166"> 
+   <p>Error handling is important enough that we have dedicated chapter 7 to covering the topic in detail, but when you’re developing small programs like this, it’s often enough to log the error and exit. You can return to the error handling code later if you want to add special handling.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p167"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.26 Logging an error and exiting</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">if err != nil {
+	log.Println(err)
+	os.Exit(1)
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p168"> 
+   <p>Error checking in Go is a simple matter of testing whether the error value is <code>nil</code>. If it is, you’re good! If it’s not, an error has happened, and you need to handle it.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p169"> 
+   <p>To separate error output from normal program output, you can swap out <code>fmt</code> for <code>log</code>, which provides many of the same functions, including <code>Println</code>, but it prints to standard error and includes a helpful timestamp, making log messages easy to spot.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p170"> 
+   <p>The <code>log</code> line is followed by a call to another OS function, <code>os.Exit(1)</code>, which causes the program to exit immediately with an <em>exit code</em> of 1, indicating that the program terminated in an unexpected way.</p> 
+  </div> 
+  <div class="readable-text" id="p171"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.6.4</span> Counting the words in the loaded file</h3> 
+  </div> 
+  <div class="readable-text" id="p172"> 
+   <p>Now that you have the file’s raw contents as a slice of bytes, you need to split that text into individual words so you can count them. The following listing uses <code>strings.Fields</code>, a function that splits a string on whitespace and returns each nonempty chunk as an element of a slice.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p173"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.27 Using strings.Fields on the file contents</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">words := strings.Fields(string(fileContents))</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p174"> 
+   <p>After loading the file and checking for an error, the code is pretty similar to the last version of the program, except that <code>os.ReadFile</code> returns a slice of bytes instead of a string. This is because not all files are text, and Go doesn’t want to assume anything about how you’re going to handle the file. Instead, it returns the raw contents of the file, which you can use however you want.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p175"> 
+   <p>Luckily, strings are also just bytes, so if you’re loading a text file, you can use a <em>type conversion</em> to convert the bytes directly to a string, like this: <code>string(fileContents)</code><em>.</em><em></em> </p> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p176"> 
+   <p><span class="print-book-callout-head">Note</span> Instead of <code>string</code>, you can also use the <code>bytes</code> package which provides many of the same methods as <code>strings</code>, but for slices of bytes instead: <code>words</code> <code>:= bytes.Fields(fileContents)</code>.</p> 
+  </div> 
+  <div class="readable-text" id="p177"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.6.5</span> Running the program on a file</h3> 
+  </div> 
+  <div class="readable-text" id="p178"> 
+   <p>You can use <code>go</code> <code>run</code> to run this version of the program as before, but this time you’ll need to create a <code>words.txt</code> file in the same directory as <code>main.go</code>. Earlier, in listing 2.26, we referenced this filename to be loaded by our application. In the future, you will learn how to add inputs into your applications so you don’t need to hardcode the value to make the application more flexible. For now, we will just create the appropriate file we expect.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p179"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.28 Running the application on words.txt</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ echo this is four words &gt; words.txt
+$ go run main.go
+found 4 words</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p180"> 
+   <p>You can also test your error handling by removing the file and seeing what happens.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p181"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.29 Running the application with no input file</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ rm words.txt
+$ go run main.go
+2022/05/05 20:33:39 open words.txt: no such file or directory</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p182"> 
+   <p>Try out different contents and see how well it works.</p> 
+  </div> 
+  <div class="readable-text" id="p183"> 
+   <h2 class=" readable-text-h2"><span class="num-string">2.7</span> Specifying the file</h2> 
+  </div> 
+  <div class="readable-text" id="p184"> 
+   <p>Now that you can read the contents of a file, the next logical step is to make it work for <em>any</em> file, not just <code>words.txt</code>. To do this, you need to be able to process your program arguments. The <code>os</code> package has you covered here, too.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p185"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.30 Altering main.go to take a filename as an argument</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"strings"
+)
+
+func main() {
+	if len(os.Args) &lt; 2 {
+		log.Println("need to provide filename!")
+		os.Exit(1)
+	}
+
+	fileContents, err := os.ReadFile(os.Args[1])
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
+
+	words := strings.Fields(string(fileContents))
+
+	fmt.Println("Found", len(words), "words")
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p186"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.7.1</span> Getting program arguments from os.Args</h3> 
+  </div> 
+  <div class="readable-text" id="p187"> 
+   <p>Most languages give you access to the arguments your program was called with, and Go is no exception. When your program starts, the runtime takes stock of all the arguments passed to your program and stores them in memory. When you import the <code>os</code> package for the first time, it places them into an exported variable named <code>Args </code>(see figure 2.4). By convention, this list starts with the command itself, so it always has a length of at least 1.</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p188">  
+   <img alt="" src="../Images/CH02_F04_Kennedy2.png" style="width: 100%; max-width: max-content;" width="440" height="273"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 2.4 os.Args illustrated</span></h5>
+  </div> 
+  <div class="readable-text" id="p189"> 
+   <p>This allows your program to access the first argument at <code>os.Args[1]</code> and treat it as the filename to load.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p190"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.31 Opening the first argument as a file</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">fileContents, err := os.ReadFile(os.Args[1])</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p191"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.7.2</span> Avoiding a panic by using len</h3> 
+  </div> 
+  <div class="readable-text" id="p192"> 
+   <p>Because <code>os.Args</code> always contains the name of your program first, you need to look at <code>os.Args[1]</code> and above to get any of the arguments. But there’s a catch: if your program isn’t run with any arguments, you could end up trying to access a value that doesn’t exist, as illustrated in figure 2.5.</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p193">  
+   <img alt="" src="../Images/CH02_F05_Kennedy2.png" style="width: 100%; max-width: max-content;" width="285" height="122"/> 
+   <h5 class=" figure-container-h5"><span class="">Figure 2.5 Looking where you shouldn’t</span></h5>
+  </div> 
+  <div class="readable-text" id="p194"> 
+   <p>If you don’t check the length of your arguments first, and you blindly try to access the first argument, this will result in a <em>panic</em>, where the Go runtime crashes your program rather than trying to read a value that doesn’t exist.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p195"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.32 Panic output on missing arguments</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">panic: runtime error: index out of range [1] with length 1</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p196"> 
+   <p>To avoid this, your best bet is to check the number of arguments first with <code>len</code>.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p197"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.33 Checking the argument length with len</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">if len(os.Args) &lt; 2 {
+	log.Println("need to provide filename!")
+	os.Exit(1)
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p198"> 
+   <p>This way, your program does the right thing if it’s not given the name of a file to read from.</p> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p199"> 
+   <p><span class="print-book-callout-head">Important</span> Always check the length of any slice with <code>len</code> before accessing an arbitrary element.</p> 
+  </div> 
+  <div class="readable-text" id="p200"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.7.3</span> Running your program with arguments</h3> 
+  </div> 
+  <div class="readable-text" id="p201"> 
+   <p>Now that you have a more flexible program, you can try it out on any text file you like, including its own source.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p202"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.34 Running wordcount with files as arguments</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ go build
+$ ./wordcount words.txt
+Found 4 words
+$ ./wordcount main.go
+Found 41 words</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p203"> 
+   <p>If you have <code>wc</code> installed on your system, and you’re feeling cheeky, you can even test it out to see how it stacks up.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p204"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.35 Testing against the competition</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ wc -w words.txt
+       4 words.txt
+$ wc -w main.go
+      41 main.go</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p205"> 
+   <p>Hah, take <em>that</em> <code>wc</code>!</p> 
+  </div> 
+  <div class="readable-text" id="p206"> 
+   <h2 class=" readable-text-h2"><span class="num-string">2.8</span> A more efficient method</h2> 
+  </div> 
+  <div class="readable-text" id="p207"> 
+   <p><code>os.ReadFile</code> has been working pretty well so far, but it has one small problem: it reads the whole file into memory each time. This is fine for smaller files, but you can make it work for any number of files of any size with just a little more work.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p208"> 
+   <p>Reading and writing data in manageable chunks is a common enough task that Go has an entire package dedicated to it. In this case, the package is called <code>bufio</code>, which buffers input and output so that your program doesn’t hold on to more memory than it needs.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p209"> 
+   <p>One of the types in this package that is particularly useful for reading bits of text is the <code>Scanner</code> type, which can split data in a variety of ways and give it to you a piece at a time. Using a package like this is handy because it allows you to focus on the important parts of the task at hand, without requiring you to handle all the implementation details yourself. In this case, it means you only have to worry about calling a couple of methods to get the latest bit of text and check for errors, without needing to write a bunch of extra code.</p> 
+  </div> 
+  <div class="readable-text" id="p210"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.8.1</span> Using go doc to learn more about types</h3> 
+  </div> 
+  <div class="readable-text" id="p211"> 
+   <p>When you want to learn more about a package and its types, you can use <code>go doc</code> to get an overview by passing it the package and type names.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p212"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.36 Output of go doc bufio Scanner</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">type Scanner struct {
+        // Has unexported fields.
+}
+    Scanner provides a convenient interface for reading data such as a file
+    of newline-delimited lines of text. Successive calls to the Scan method
+    will step through the 'tokens' of a file, skipping the bytes between the
+    tokens. The specification of a token is defined by a split function of
+    type SplitFunc; the default split function breaks the input into lines
+    with line termination stripped. Split functions are defined in this
+    package for scanning a file into lines, bytes, UTF-8-encoded runes, and
+    space-delimited words. The client may instead provide a custom split
+    function.
+
+    Scanning stops unrecoverably at EOF, the first I/O error, or a token too
+    large to fit in the buffer. When a scan stops, the reader may have
+    advanced arbitrarily far past the last token. Programs that need more
+    control over error handling or large tokens, or must run sequential
+    scans on a reader, should use bufio.Reader instead.
+
+func NewScanner(r io.Reader) *Scanner
+func (s *Scanner) Buffer(buf []byte, max int)
+func (s *Scanner) Bytes() []byte
+func (s *Scanner) Err() error
+func (s *Scanner) Scan() bool
+func (s *Scanner) Split(split SplitFunc)
+func (s *Scanner) Text() string</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p213"> 
+   <p>This is a typical document listing for a package type, and it’s a good example of how <code>go</code> <code>doc</code> presents documentation at a higher level. The first thing you’ll see is the definition of the type itself, as well as any fields it might export inside the curly braces. In this case, <code>Scanner</code> doesn’t expose any fields, so all you see is a comment that it contains unexported fields, just in case you care about that sort of thing.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p214"> 
+   <p>After the type definition, <code>go</code> <code>doc</code> adds the type documentation, which is usually a description of the type and its purpose, often with information about how it works. The amount of detail varies by package, but standard library packages like this one tend to be fairly detailed, giving you as much information as possible so you don’t miss anything that might be important (even if it might not concern your use case). In this example, the <code>Scanner</code> type documentation has a lot to say about how the type is used, as well as some more technical details about how it’s implemented. There’s a lot going on here, but it breaks down to these three points:</p> 
+  </div> 
+  <ul> 
+   <li class="readable-text" id="p215"><code>Scanner</code> splits data into smaller pieces called “tokens.”</li> 
+   <li class="readable-text" id="p216">The default mode is to split on newlines, meaning each token will be a single line of your file, with the trailing newline chopped off. You can also change this behavior if you want by using one of several predefined <code>SplitFunc</code> functions, or by writing your own.</li> 
+   <li class="readable-text" id="p217"><code>Scanner</code> will keep returning tokens until you reach the end of the file (EOF) or an error occurs.</li> 
+  </ul> 
+  <div class="readable-text" id="p218"> 
+   <p>After the description, but before any methods, <code>go</code> <code>doc</code> also lists any functions in the same package that return a value (or pointer) of the type you are asking about. This is because some types are designed to be initialized before they are used; <code>go</code> <code>doc</code> lists anything that looks like it might be a constructor function for that type first, making you aware of it. In this case, there is a function called <code>NewScanner</code> that plugs in the data source you’ll be reading from and returns a new scanner for that data, ready to use. </p> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p219"> 
+    <h5 class=" callout-container-h5 readable-text-h5">Constructors in Go</h5> 
+   </div> 
+   <div class="readable-text" id="p220"> 
+    <p>While many types in Go are designed to be useful without initialization, others require some configuration first and provide constructor functions that do the setup for you. The convention is to use a function of the form <code>NewT(&lt;arguments&gt;) *T</code>, where <code>T</code> is the type it returns and the arguments are any requirements or options passed to the function.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p221"> 
+   <p>In this case, <code>Scanner</code> needs a source to read from, so <code>NewScanner</code> takes an <code>io.Reader</code> for the data source and initializes a new scanner to read from it. We’ll get to <code>io.Reader</code> in just a moment, but first, you can examine the methods in greater detail to get an idea of how <code>bufio.Scanner</code> is supposed to be used. You can do this one method at a time by using <code>go doc &lt;package name&gt; &lt;type name&gt;.&lt;method name&gt;</code>, or you can use <code>-all</code> with the type to list them all at once.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p222"> 
+   <p>There are three important methods for our word-counting program: <code>Scan</code>, <code>Text</code>, and <code>Err</code>.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p223"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.37 go doc output for the Scan, Text, and Err methods</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func (s *Scanner) Scan() bool
+    Scan advances the Scanner to the next token, which will then be
+    available through the Bytes or Text method. It returns false when the
+    scan stops, either by reaching the end of the input or an error. After
+    Scan returns false, the Err method will return any error that occurred
+    during scanning, except that if it was io.EOF, Err will return nil. Scan
+    panics if the split function returns too many empty tokens without
+    advancing the input. This is a common error mode for scanners.
+func (s *Scanner) Text() string
+    Text returns the most recent token generated by a call to Scan as a
+    newly allocated string holding its bytes.
+func (s *Scanner) Err() error
+    Err returns the first non-EOF error that was encountered by the Scanner.</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p224"> 
+   <p>It looks like the general flow is to call <code>Scan</code> repeatedly, get new tokens with <code>Text</code>, and finally call <code>Err</code> to see if anything went wrong. This is starting to make sense, but you’d be forgiven for thinking that the documentation alone doesn’t give you the whole picture. Documentation is great for understanding the particulars, but sometimes it’s far more helpful to see an example. To fill this gap, many Go packages include example snippets as part of their test suite, and you can view these using <code>go</code> <code>doc</code> <code>-ex</code>.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p225"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.38 Example usage from go doc -ex bufio.NewScanner</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">scanner := bufio.NewScanner(os.Stdin)
+for scanner.Scan() {
+	fmt.Println(scanner.Text())
+}
+if err := scanner.Err(); err != nil {
+	fmt.Fprintln(os.Stderr, "reading standard input:", err)
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p226"> 
+   <p>This makes the usage much clearer! Thanks to the example code, you can see that <code>Scan</code> is designed to be used with a <code>for</code> loop, which automatically takes care of getting new data on each iteration while making sure it’s okay to proceed. Since <code>Scan</code> returns <code>false</code> when it’s done, the loop will keep running as long as there is more data to get and nothing has gone wrong. This is a clever pattern because it avoids the need to check the <code>Scan</code> and <code>Err</code> methods repeatedly.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p227"> 
+   <p>Examples like this can be very valuable when you are evaluating packages for use in your own code, and they can help jump-start development, since they provide a fully working example as a starting point.</p> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p228"> 
+   <p><span class="print-book-callout-head">Tip</span> Whenever you’re in doubt about how you’re supposed to use a package, try using <code>go</code> <code>doc</code> <code>-ex</code> to look for example code.</p> 
+  </div> 
+  <div class="readable-text" id="p229"> 
+   <p>Adapting the example to the word-counting code you have so far, you can replace the code in the loop with the code you want to call for each line, and then check <code>Err</code> when you’re done. This means you can use the same <code>strings.Fields</code> approach as before, but this time you’re using it on only one line at a time, and you can keep a running total outside the loop.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p230"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.39 Using strings.Fields inside the Scan loop</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// Counter to track the running total.
+var wordCount int
+
+for scanner.Scan() {
+	// This is done for each line of the file.
+	words := strings.Fields(scanner.Text())
+	wordCount += len(words)
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p231"> 
+   <p>This is clean and simple, and thanks to the buffering provided by the <code>Scanner</code> type, it is much more efficient. The only outstanding task is to open the file so that the scanner can read it as needed, instead of all at once with <code>os.ReadFile</code>.</p> 
+  </div> 
+  <div class="readable-text" id="p232"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.8.2</span> Files and I/O interfaces</h3> 
+  </div> 
+  <div class="readable-text" id="p233"> 
+   <p>Earlier, you learned that <code>NewScanner</code> takes something called an <code>io.Reader</code> as its only input, and you need some way to connect a file to this type. If you check the documentation, you’ll find that <code>Reader</code> is actually an interface with just a single method, <code>Read</code>.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p234"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.40 Excerpt from go doc io.Reader</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">type Reader interface {
+        Read(p []byte) (n int, err error)
+}
+    Reader is the interface that wraps the basic Read method.
+
+    Read reads up to len(p) bytes into p. It returns the number of bytes
+    read (0 &lt;= n &lt;= len(p)) and any error encountered. Even if Read returns
+    n &lt; len(p), it may use all of p as scratch space during the call. If
+    some data is available but not len(p) bytes, Read conventionally returns
+    what is available instead of waiting for more.</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p235"> 
+   <p>As we mentioned in chapter 1, interface values can accept any type, as long as that type has all the methods defined in the interface. With <code>Reader</code>, this requirement is easy to meet, since all you need is a type that has a <code>Read</code> method that takes a byte slice and returns an integer and an error. So what you really need is a type that represents a file and has a <code>Read</code> method.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p236"> 
+   <p>As luck would have it, you don’t have to look very far to find what you need, since right alongside <code>Readfile</code> in the <code>os</code> package is the <code>os.File</code> type, the standard Go type for representing any file on disk. A quick glance at the documentation shows that <code>os.File</code> does indeed have a <code>Read</code> method, and all you need to do is call <code>os.Open</code> with a filename, and you’ll get a freshly opened os.<code>File</code> structure, ready to be accessed.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p237"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.41 An excerpt from <code>go doc os.File</code>:</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">type File struct {
+        // Has unexported fields.
+}
+    File represents an open file descriptor.
+//...
+func Open(name string) (*File, error)
+//...
+func (f *File) Read(b []byte) (n int, err error)</pre>  
+   </div> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p238"> 
+    <h5 class=" callout-container-h5 readable-text-h5">The function of the io interfaces</h5> 
+   </div> 
+   <div class="readable-text" id="p239"> 
+    <p>One important function of the <code>io</code> package is that it defines a number of simple interface types that model important behavior for interacting with input/output sources in Go. In addition to <code>Reader</code>, you will find <code>Writer</code>, which defines sources that can be written to; <code>Seeker</code>, which defines sources that allow you to jump around in the data; and <code>Closer</code>, for types that have a <code>Close</code> method for indicating that the program is done with them. Some, such as <code>ReadCloser</code> or <code>ReadSeekCloser</code>, are combinations of two or more of the others. </p> 
+   </div> 
+   <div class="readable-text" id="p240"> 
+    <p>By themselves, these interfaces don’t perform any function, but they are important because they establish conventions for any Go code that needs to perform input and output. When you see a function that takes one of these interfaces as an argument, you will know right away how it intends to use the value and what it can and cannot do with the underlying type. Further, by implementing one of these interfaces in your own code, you allow any types you create to be used in any of the many different locations that follow these conventions.</p> 
+   </div> 
+   <div class="readable-text" id="p241"> 
+    <p>The <code>io</code> interfaces are among the most common standard interfaces you will run across when looking at Go code in the standard library and elsewhere, and you are encouraged to read the documentation for the <code>io</code> package to learn more about them.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p242"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.8.3</span> Integrating the scanner loop</h3> 
+  </div> 
+  <div class="readable-text" id="p243"> 
+   <p>With the final piece in place, all you have to do is replace the <code>os.Readfile</code> call with <code>os.Open</code>, pass the file to the scanner, and start your loop.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p244"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.42 Altering main.go to use bufio.Scanner</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func main() {
+	if len(os.Args) &lt; 2 {
+		log.Println("need to provide filename!")
+		os.Exit(1)
+	}
+
+	// Open the first argument as a file.
+	file, err := os.Open(os.Args[1])
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
+
+	// Create a scanner to read from the file.
+	scanner := bufio.NewScanner(file)
+
+	// Counter to track the running total.
+	var wordCount int
+
+	// For each line of the file, get the number of words, and add it to
+	// the total.
+	for scanner.Scan() {
+		words := strings.Fields(scanner.Text())
+		wordCount += len(words)
+	}
+
+	if scanner.Err() != nil {
+		log.Println(scanner.Err())
+		os.Exit(1)
+	}
+
+	fmt.Println("Found", wordCount, "words")
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p245"> 
+   <p>This functions exactly as before, but now it will work for any file, no matter how large it is. That’s pretty cool.</p> 
+  </div> 
+  <div class="readable-text" id="p246"> 
+   <h3 class=" readable-text-h3"><span class="num-string">2.8.4</span> Function types for modifying behavior</h3> 
+  </div> 
+  <div class="readable-text" id="p247"> 
+   <p>There’s one other interesting Go feature lurking in the type description for ­<code>bufio.Scanner</code> that can make things even easier. The docs mention that you can change the method used to split the input into tokens by using something called a <code>SplitFunc</code>. Looking at the documentation for this type reveals something interesting: the type is neither a struct nor an interface, but a <em>function</em>.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p248"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.43 Excerpt from go doc bufio SplitFunc</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">type SplitFunc func(data []byte, atEOF bool)
+	(advance int, token []byte, err error)
+
+	SplitFunc is the signature of the split function used to tokenize the
+    input. The arguments are an initial substring of the remaining
+    unprocessed data and a flag, atEOF, that reports whether the Reader has
+    no more data to give. The return values are the number of bytes to
+    advance the input and the next token to return to the user, if any, plus
+    an error, if any.</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p249"> 
+   <p>This is a <em>function type</em>, which means that variables of this type can be called just like any other function. The interesting bit is that these variables can hold <em>any</em> function that has the same inputs and outputs. This is an extremely powerful language feature that we’ll expand on in chapter 5, but the upshot here is that you can plug a variety of different functions into a scanner to get different behavior, while still getting all the benefits of the <code>Scanner</code> type.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p250"> 
+   <p>The <code>bufio</code> package even provides a few of these for you, including one called <code>ScanWords</code>, which changes the tokens from individual lines to individual words instead.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p251"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.44 go doc bufio ScanWords</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func ScanWords(data []byte, atEOF bool)
+	(advance int, token []byte, err error)
+
+    ScanWords is a split function for a Scanner that returns each
+    space-separated word of text, with surrounding spaces deleted. It will
+    never return an empty string. The definition of space is set by
+    unicode.IsSpace.</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p252"> 
+   <p>Now the task becomes almost trivially easy, because all you really need to do is add 1 to the running total each time through the loop.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p253"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.45 Using the ScanWords function instead of Strings.Fields</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">// Create a scanner to read from the file.
+scanner := bufio.NewScanner(file)
+
+// Change the split function to split on words instead of lines.
+scanner.Split(bufio.ScanWords)
+
+// Counter to track the running total.
+var wordCount int
+
+// Add 1 to the count for each word.
+for scanner.Scan() {
+	wordCount++
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p254"> 
+   <p>This is a great example of why it pays to check the documentation when working with new packages: often you will find something that can make the task at hand easier or more flexible. Sometimes you’ll even learn a new trick, or an entirely different way to do things, such as the <code>Scanner</code> loop technique. Documentation is a programmer’s best friend and, whether it is on your local machine with <code>go doc</code> or online at <a href="https://pkg.go.dev/"><span class="Hyperlink">https:</span><span class="Hyperlink">/</span><span class="Hyperlink">/pkg.go.dev/</span></a>, you should familiarize yourself with the tools for reading Go documentation and use them often.</p> 
+  </div> 
+  <div class="readable-text" id="p255"> 
+   <h2 class=" readable-text-h2"><span class="num-string">2.9</span> Reading multiple files</h2> 
+  </div> 
+  <div class="readable-text" id="p256"> 
+   <p>Now that you don’t have to worry about how much to read into memory, you can extend the program to read from any number of files in a single run. The basic operation remains the same; instead of reading only one program argument, you read one <em>or more</em> of them.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p257"> 
+   <p>To accomplish this, you can loop over all the program arguments, starting from index 1.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p258"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.46 Using a range loop to visit multiple items in a list</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">func main() {
+	if len(os.Args) &lt; 2 {
+		log.Println("need to provide at least one filename!")
+		os.Exit(1)
+	}
+
+	// Loop over all arguments from index 1 onwards.
+	for _, filename := range os.Args[1:] {
+		file, err := os.Open(filename)
+
+		// If there's an error, print it and skip to the next file.
+		if err != nil {
+			log.Printf("%s: %v", filename, err)
+			continue
+		}
+		scanner := bufio.NewScanner(file)
+		scanner.Split(bufio.ScanWords)
+
+		var wordCount int
+
+		for scanner.Scan() {
+			wordCount++
+		}
+
+		if scanner.Err() != nil {
+			log.Printf("scan error %s: %v", filename, scanner.Err())
+			file.Close()
+			continue
+		}
+
+		file.Close()
+		fmt.Printf("%s: %d\n", filename, wordCount)
+	}
+}</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p259"> 
+   <p>This combines a couple of useful features. <code>os.Args[1:]</code> is a <em>slice expression</em> that lets you start from a particular index, while the <code>range</code> loop allows you to visit each of these items in turn, assigning the value to <code>filename</code> for each pass through the loop. We’ll discuss slice expressions in more detail in chapter 4.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p260"> 
+   <p><code>range</code> is a flexible and convenient syntax that lets you avoid checking the limits of your collections, because it automatically terminates after viewing every item in the list. It is also one of the few places in the language where the behavior changes depending on how many values you assign.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p261"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.47 The two different range loop forms for slices</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">stringList := []string{"A", "B", "C"}
+
+// Single-value form gets just the index.
+for index := range stringList {
+	fmt.Println(index)
+}
+// Output:
+// 0
+// 1
+// 2
+
+// Two-value form gets the index and a copy of the value.
+for index, value := range stringList {
+	fmt.Println(index, value)
+}
+// Output:
+// 0 A
+// 1 B
+// 2 C
+
+// Discarding the index.
+for _, value := range stringList {
+	fmt.Println(value)
+}
+// Output:
+// A
+// B
+// C</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p262"> 
+   <p>When you range over a collection, assigning just one variable gives you the index of each element in turn; assigning two variables gives you both the index and a copy of the element’s value at that index. If you only want the value and not the index, you can discard the index by assigning it to the blank identifier: _. Range loops can be used on strings, slices and arrays, maps, and channels, and we will touch on these more in chapters 4 and 9.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p263"> 
+   <p>In the meantime, let’s examine the fruits of your labors. If everything has gone well, you should be able to create as many new files as you want and call the program on all of them at once. Try throwing in a nonexistent file for good measure to see how well it holds up.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p264"> 
+   <h5 class=" listing-container-h5 browsable-container-h5">Listing 2.48 Running the new code on multiple files</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">$ cat words2.txt
+This file has a few more words in it, but it's still pretty tame compared to
+the collected works of Leo Tolstoy.
+But, hey, now that you're scanning the file instead of reading it all into
+memory, you can scan whatever you want, without fear. wc is for chumps,
+re-write everything in Go, this is the way.
+
+$ go run main.go words.txt words2.txt not_there.txt
+words.txt: 14
+words2.txt: 57
+not_there.txt: open not_there.txt: no such file or directory</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p265"> 
+   <p>Working great! Now that you have your first working program, try coming up with some other useful things you can do with it. Maybe you want to take more of the market share from <code>wc</code> and count lines in addition to words by combining the two scanning approaches. Or maybe you want to count word frequency or look for particular words. It’s not too much of a stretch, as long as you handle case and punctuation (hint: check out the godoc for <code>strings</code> <code>ToLower</code> and <code>regexp</code> <code>ReplaceAllString</code>). Or just keep reading and come back to it later. The world of words is your oyster.</p> 
+  </div> 
+  <div class="readable-text" id="p266"> 
+   <h2 class=" readable-text-h2">Summary</h2> 
+  </div> 
+  <ul> 
+   <li class="readable-text" id="p267">Go is a compiled, statically typed language with a simple syntax and a rich feature set.</li> 
+   <li class="readable-text" id="p268">Go has great documentation support, and once you know how to look things up, you can find information on types and methods as well as examples to help you get started.</li> 
+   <li class="readable-text" id="p269">Go has an extensive standard library that provides a variety of useful features and helps you simplify your code.</li> 
+  </ul>
+ </div></div></body></html>
